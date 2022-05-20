@@ -1,0 +1,20 @@
+name: bioblp
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.8
+  - pandas
+  - seaborn
+  - rdkit
+  - pytest
+  - pip
+  - pip:
+  # works for regular pip packages
+      - -e .
+      - ipykernel
+      - python-dotenv
+      - pykeen
+      - wandb
+      - autopep8
+
