@@ -11,7 +11,7 @@ logger = get_logger(__name__)
 
 
 class Arguments(Tap):
-    training_triples: str
+    train_triples: str
     valid_triples: str
     test_triples: str
 
@@ -21,7 +21,7 @@ class Arguments(Tap):
     optimizer: str = 'adagrad'
     learning_rate: float = 1e-2
     regularizer: float = 1e-6
-    num_epochs: int = 100
+    num_epochs: int = 500
     batch_size: int = 512
     num_negatives: int = 128
     add_inverses: bool = False
@@ -33,7 +33,7 @@ class Arguments(Tap):
 def run(args: Arguments):
     logger.info('Loading triples...')
     training = TriplesFactory.from_path(
-        args.training_triples,
+        args.train_triples,
         create_inverse_triples=args.add_inverses
     )
     validation = TriplesFactory.from_path(args.valid_triples)
@@ -80,4 +80,5 @@ def run(args: Arguments):
     result.save_to_directory(osp.join('models', wandb.run.id))
 
 
-run(Arguments(explicit_bool=True).parse_args())
+if __name__ == '__main__':
+    run(Arguments(explicit_bool=True).parse_args())
