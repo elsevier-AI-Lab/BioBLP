@@ -16,7 +16,7 @@ class Arguments(Tap):
     test_triples: str
 
     model: str = 'complex'
-    dimension: int = 128
+    dimension: int = 256
     loss_fn: str = 'crossentropy'
     optimizer: str = 'adagrad'
     learning_rate: float = 1e-2
@@ -62,7 +62,7 @@ def run(args: Arguments):
                       },
                       stopper='early',
                       stopper_kwargs={
-                          'metric': 'both.pessimistic.inverse_harmonic_mean_rank',
+                          'metric': 'both.realistic.inverse_harmonic_mean_rank',
                           'frequency': 10,
                           'patience': 5,
                           'relative_delta': 0.0001,
@@ -77,7 +77,7 @@ def run(args: Arguments):
                       }
                       )
 
-    result.save_to_directory(osp.join('results', wandb.run.id))
+    result.save_to_directory(osp.join('models', wandb.run.id))
 
 
 run(Arguments(explicit_bool=True).parse_args())
