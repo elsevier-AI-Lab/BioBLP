@@ -7,7 +7,7 @@ import wandb
 
 from bioblp.logging import get_logger
 
-logger = get_logger(__name__)
+logger = get_logger()
 
 
 class Arguments(Tap):
@@ -56,10 +56,7 @@ def run(args: Arguments):
                       regularizer_kwargs={'weight': args.regularizer},
                       training_kwargs={'num_epochs': args.num_epochs,
                                        'batch_size': args.batch_size},
-                      negative_sampler='basic',
-                      negative_sampler_kwargs={
-                          'num_negs_per_pos': args.num_negatives
-                      },
+                      training_loop='lcwa',
                       stopper='early',
                       stopper_kwargs={
                           'metric': 'both.realistic.inverse_harmonic_mean_rank',
