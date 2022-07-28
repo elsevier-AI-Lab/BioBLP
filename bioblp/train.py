@@ -20,9 +20,9 @@ class Arguments(Tap):
     optimizer: str = 'adagrad'
     learning_rate: float = 1e-2
     regularizer: float = 1e-6
-    num_epochs: int = 500
-    batch_size: int = 512
-    num_negatives: int = 128
+    num_epochs: int = 100
+    batch_size: int = 1024
+    num_negatives: int = 512
     add_inverses: bool = False
 
     log_wandb: bool = False
