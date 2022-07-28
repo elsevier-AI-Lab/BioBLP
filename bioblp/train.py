@@ -1,11 +1,23 @@
 import os.path as osp
 
 from pykeen.pipeline import pipeline
+from pykeen.training import TrainingCallback
 from pykeen.triples import TriplesFactory
 from tap import Tap
 import wandb
 
 from bioblp.logging import get_logger
+
+
+class WBIDCallback(TrainingCallback):
+    """A callback to get the wandb ID of the run before it gets closed.
+    We use it to get a file name for the stored model."""
+    id = None
+
+    def post_train(self, *args, **kwargs):
+        if wandb.run is not None:
+            WBIDCallback.id = wandb.run.id
+
 
 logger = get_logger()
 
@@ -55,8 +67,12 @@ def run(args: Arguments):
                       regularizer='LpRegularizer',
                       regularizer_kwargs={'weight': args.regularizer},
                       training_kwargs={'num_epochs': args.num_epochs,
-                                       'batch_size': args.batch_size},
-                      training_loop='lcwa',
+                                       'batch_size': args.batch_size,
+                                       'callbacks': WBIDCallback},
+                      negative_sampler='basic',
+                      negative_sampler_kwargs={
+                          'num_negs_per_pos': args.num_negatives
+                      },
                       stopper='early',
                       stopper_kwargs={
                           'metric': 'both.realistic.inverse_harmonic_mean_rank',
@@ -74,7 +90,7 @@ def run(args: Arguments):
                       }
                       )
 
-    result.save_to_directory(osp.join('models', wandb.run.id))
+    result.save_to_directory(osp.join('models', WBIDCallback.id))
 
 
 if __name__ == '__main__':
