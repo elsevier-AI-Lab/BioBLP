@@ -9,19 +9,6 @@ import wandb
 from bioblp.logging import get_logger
 
 
-class WBIDCallback(TrainingCallback):
-    """A callback to get the wandb ID of the run before it gets closed.
-    We use it to get a file name for the stored model."""
-    id = None
-
-    def post_train(self, *args, **kwargs):
-        if wandb.run is not None:
-            WBIDCallback.id = wandb.run.id
-
-
-logger = get_logger()
-
-
 class Arguments(Tap):
     train_triples: str
     valid_triples: str
@@ -42,8 +29,22 @@ class Arguments(Tap):
     notes: str = None
 
 
+class WBIDCallback(TrainingCallback):
+    """A callback to get the wandb ID of the run before it gets closed.
+    We use it to get a file name for the stored model."""
+    id = None
+
+    def post_train(self, *args, **kwargs):
+        if wandb.run is not None:
+            WBIDCallback.id = wandb.run.id
+
+
 def run(args: Arguments):
+    cli_args_dict = {f'cli_{k}': v for k, v in args.as_dict().items()}
+
+    logger = get_logger()
     logger.info('Loading triples...')
+
     training = TriplesFactory.from_path(
         args.train_triples,
         create_inverse_triples=args.add_inverses
@@ -86,6 +87,7 @@ def run(args: Arguments):
                           'entity': 'discoverylab',
                           'project': 'bioblp',
                           'notes': args.notes,
+                          'config': cli_args_dict,
                           'offline': not args.log_wandb
                       }
                       )
