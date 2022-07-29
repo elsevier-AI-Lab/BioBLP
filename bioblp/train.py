@@ -17,6 +17,7 @@ class Arguments(Tap):
     model: str = 'complex'
     dimension: int = 256
     loss_fn: str = 'crossentropy'
+    loss_margin: float = 1.0
     optimizer: str = 'adagrad'
     learning_rate: float = 1e-2
     regularizer: float = 1e-6
@@ -57,12 +58,17 @@ def run(args: Arguments):
     logger.info(f'{validation.num_triples:,} validation triples')
     logger.info(f'{testing.num_triples:,} test triples')
 
+    loss_kwargs = None
+    if args.loss_fn in {'nssa', 'marginranking'}:
+        loss_kwargs = {'margin': args.loss_margin}
+
     result = pipeline(training=training,
                       validation=validation,
                       testing=testing,
                       model=args.model,
                       model_kwargs={'embedding_dim': args.dimension,
                                     'loss': args.loss_fn},
+                      loss_kwargs=loss_kwargs,
                       optimizer=args.optimizer,
                       optimizer_kwargs={'lr': args.learning_rate},
                       regularizer='LpRegularizer',
