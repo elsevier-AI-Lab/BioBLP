@@ -23,6 +23,7 @@ class Arguments(Tap):
     regularizer: float = 1e-6
     num_epochs: int = 100
     batch_size: int = 1024
+    eval_batch_size: int = 16
     num_negatives: int = 512
     add_inverses: bool = False
 
@@ -82,12 +83,14 @@ def run(args: Arguments):
                       },
                       stopper='early',
                       stopper_kwargs={
+                          'evaluation_batch_size': args.eval_batch_size,
                           'metric': 'both.realistic.inverse_harmonic_mean_rank',
                           'frequency': 10,
                           'patience': 5,
                           'relative_delta': 0.0001,
                           'larger_is_better': True
                       },
+                      evaluator_kwargs={'batch_size': args.eval_batch_size},
                       result_tracker='wandb',
                       result_tracker_kwargs={
                           'entity': 'discoverylab',
