@@ -1,0 +1,32 @@
+entity: discoverylab
+project: bioblp
+program: bioblp.train
+method: bayes
+metric:
+  name: validation.both.realistic.inverse_harmonic_mean_rank
+  goal: maximize
+parameters:
+  learning_rate:
+    distribution: log_uniform_values
+    min: 1e-4
+    max: 1e-1
+  regularizer:
+    distribution: log_uniform_values
+    min: 1e-6
+    max: 1e-3
+  batch_size:
+    values:
+      - 512
+      - 1024
+command:
+  - ${env}
+  - python
+  - "-m"
+  - ${program}
+  - "--train_triples=data/biokgb-small/graph/biokg-small.links-train.csv"
+  - "--valid_triples=data/biokgb-small/graph/biokg-small.links-train.csv"
+  - "--test_triples=data/biokgb-small/graph/biokg-small.links-train.csv"
+  - "--log_wandb=True"
+  - "--dimension=2"
+  - "--num_epochs=50"
+  - ${args}
