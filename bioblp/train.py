@@ -28,6 +28,7 @@ class Arguments(Tap):
     add_inverses: bool = False
 
     search_train_batch_size: bool = False
+    search_eval_batch_size: bool = False
     log_wandb: bool = False
     notes: str = None
 
@@ -46,6 +47,8 @@ def run(args: Arguments):
     cli_args_dict = {f'cli_{k}': v for k, v in args.as_dict().items()}
     if args.search_train_batch_size:
         args.batch_size = None
+    if args.search_eval_batch_size:
+        args.eval_batch_size = None
 
     logger = get_logger()
     logger.info('Loading triples...')
