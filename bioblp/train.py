@@ -27,6 +27,7 @@ class Arguments(Tap):
     num_negatives: int = 512
     add_inverses: bool = False
 
+    search_train_batch_size: bool = False
     log_wandb: bool = False
     notes: str = None
 
@@ -43,6 +44,8 @@ class WBIDCallback(TrainingCallback):
 
 def run(args: Arguments):
     cli_args_dict = {f'cli_{k}': v for k, v in args.as_dict().items()}
+    if args.search_train_batch_size:
+        args.batch_size = None
 
     logger = get_logger()
     logger.info('Loading triples...')
