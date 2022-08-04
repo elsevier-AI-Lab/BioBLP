@@ -26,6 +26,7 @@ class Arguments(Tap):
     eval_batch_size: int = 16
     num_negatives: int = 512
     add_inverses: bool = False
+    early_stopper: str = 'both.realistic.inverse_harmonic_mean_rank'
 
     search_train_batch_size: bool = False
     search_eval_batch_size: bool = False
@@ -90,7 +91,7 @@ def run(args: Arguments):
                       stopper='early',
                       stopper_kwargs={
                           'evaluation_batch_size': args.eval_batch_size,
-                          'metric': 'both.realistic.inverse_harmonic_mean_rank',
+                          'metric': args.early_stopper,
                           'frequency': 10,
                           'patience': 5,
                           'relative_delta': 0.0001,
