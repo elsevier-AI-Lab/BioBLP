@@ -15,7 +15,7 @@ COL_LABEL = 'label'
 
 
 def prepare_dpi_samples(pos_df, entity_to_id_map, relation_to_id_map,
-                       num_negs_per_pos: Union[None, int] = 1,
+                       num_negs_per_pos: Union[None, int, str] = 1,
                        map_to_kgem_ids=True,
                        filtered=True):
     """
@@ -23,7 +23,7 @@ def prepare_dpi_samples(pos_df, entity_to_id_map, relation_to_id_map,
               where the entities and relations of the triple are in their string ids.
               These will be converted to KGEM integer ids at a later state
     """
-
+    
     pos_triples = TriplesFactory.from_labeled_triples(pos_df[[COL_SOURCE, COL_EDGE, COL_TARGET]].values, 
                                                       entity_to_id=entity_to_id_map, 
                                                       relation_to_id=relation_to_id_map)
@@ -58,7 +58,8 @@ def generate_negative_triples(pos_triples: TriplesFactory,
                              num_negs_per_pos = 1):
         
     neg_sampler = BasicNegativeSampler(mapped_triples=pos_triples.mapped_triples, 
-                                       filtered=filtered)
+                                       filtered=filtered,
+                                      num_negs_per_pos=num_negs_per_pos)
     pos_batch = pos_triples.mapped_triples
     neg_triples = neg_sampler.sample(pos_batch)[0]
     
