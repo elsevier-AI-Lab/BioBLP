@@ -33,14 +33,14 @@ def average(emb1, emb2):
 
 
 def apply_entity_pair_embedding_transform(emb1, emb2, transform:Callable):
+    # might want a transform fn in the future that considers relation emb (multiclass setup)
     return transform(emb1, emb2)
     
     
-def generate_dp_pair_joint_encoding(entity_pair_df, 
+def generate_entity_pair_joint_encoding(entity_pair_df, 
                                     model, 
                                     transform_fn: Callable = concatenate):
-    """
-    """
+    
     JOINT_ENCODING = "joint_encoding"
     
     head_ents = entity_pair_df[COL_SOURCE].values
@@ -55,6 +55,13 @@ def generate_dp_pair_joint_encoding(entity_pair_df,
     return entity_pair_df
 
 
+def get_kge_for_entity_list(entity_ids: Iterable,
+                            model: Model):
+    entity_ids = torch.LongTensor(entity_ids)
+    entity_embs = model.entity_representations[0]._embeddings(entity_ids)
+    return entity_embs
+          
+    
 def load_model_and_entity_to_id_maps(model_dir: Union[None, str, Path]=None):
     model_dir = Path(model_dir)
     logger.info(f'Loading trained model from {model_dir}')
@@ -67,12 +74,3 @@ def load_model_and_entity_to_id_maps(model_dir: Union[None, str, Path]=None):
                     ENTITY_TO_ID_MAP: entity_to_id_map, 
                     RELATION_TO_ID_MAP: relation_to_id_map}
     return kge_artifacts
-
-
-def get_kge_for_entity_list(entity_ids: Iterable,
-                            model: Model):
-    #ent_ids = get_ent_ids_for_entity_list(ent_names, entity_to_id_map)
-    entity_ids = torch.LongTensor(entity_ids)
-    entity_embs = model.entity_representations[0]._embeddings(entity_ids)
-    return entity_embs
-          
