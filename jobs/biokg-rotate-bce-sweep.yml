@@ -1,0 +1,37 @@
+entity: discoverylab
+project: bioblp
+program: bioblp.train
+method: bayes
+metric:
+  name: validation.both.realistic.inverse_harmonic_mean_rank
+  goal: maximize
+parameters:
+  model:
+    value: rotate
+  loss_fn:
+    value: bcewithlogits
+  learning_rate:
+    distribution: log_uniform_values
+    min: 1e-4
+    max: 1e-1
+  regularizer:
+    distribution: log_uniform_values
+    min: 1e-6
+    max: 1e-3
+  batch_size:
+    values:
+      - 128
+      - 256
+      - 512
+      - 1024
+command:
+  - ${env}
+  - python
+  - "-m"
+  - ${program}
+  - '--train_triples=data/biokgb/graph/biokg.links-train.csv'
+  - '--valid_triples=data/biokgb/graph/biokg.links-valid.csv'
+  - '--test_triples=data/biokgb/graph/biokg.links-test.csv'
+  - '--log_wandb=True'
+  - '--notes=RotatE sweep, bcewithlogits'
+  - ${args}
