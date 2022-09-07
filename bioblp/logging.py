@@ -1,9 +1,9 @@
 import logging.config
 
 
-def get_logger():
+def get_logger(logger_name=''):
     """Get a default logger that includes a timestamp."""
-    logger = logging.getLogger('')
+    logger = logging.getLogger(logger_name)
     logger.handlers = []
     ch = logging.StreamHandler()
     str_fmt = '%(asctime)s - %(levelname)s - %(name)s - %(message)s'
