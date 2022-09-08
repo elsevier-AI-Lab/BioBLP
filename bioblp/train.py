@@ -39,8 +39,8 @@ class WBIDCallback(TrainingCallback):
     We use it to get a file name for the stored model."""
     id = None
 
-    def post_train(self, *args, **kwargs):
-        if wandb.run is not None:
+    def post_epoch(self, *args, **kwargs):
+        if wandb.run is not None and WBIDCallback.id is None:
             WBIDCallback.id = wandb.run.id
 
 
