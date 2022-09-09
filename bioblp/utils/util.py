@@ -1,7 +1,7 @@
 import sys
 import time
 import pickle
-
+import torch
 
 def save_object(obj, filename):
     with open(filename, 'wb') as output:  # Overwrites any existing file.
