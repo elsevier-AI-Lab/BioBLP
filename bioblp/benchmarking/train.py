@@ -35,6 +35,8 @@ from sklearn.model_selection import cross_validate
 from skorch import NeuralNet
 from skorch import NeuralNetClassifier
 
+from typing import Union
+
 from bioblp.data import COL_EDGE, COL_SOURCE, COL_TARGET
 from bioblp.logging import get_logger
 
@@ -84,13 +86,17 @@ def get_scorers():
     return scorer
 
 
-def tracker_callback_fn(trial, params, metrics, **kwargs):
-    logger.info(
-        f"============== tracker | \n trial: {trial} \n params: {params} \n metrics: {metrics}\n and args: {kwargs}")
+class FileResultTracker():
+    def __init__(self):
+        self.file = None
+
+    def __call__(self, study, trial_i, **kwargs):
+        logger.info(
+            f"============== File tracker callback | study: {study} \n, frozentrial: {trial_i}, \n kwargs: {kwargs}")
 
 
 class CVObjective(abc.ABC):
-    def __init__(self, X_train, y_train, cv, scoring, result_tracker_callback, refit_params, run_id: str):
+    def __init__(self, X_train, y_train, cv, scoring, refit_params, run_id: Union[str, None] = None):
         self.best_model = None
         self._model = None
 
@@ -98,10 +104,16 @@ class CVObjective(abc.ABC):
         self.y_train = y_train
         self.cv = cv
         self.scoring = scoring
-        self.result_tracker_callback = result_tracker_callback
         self.refit_params = refit_params
+        self.run_id = run_id
 
     def _clf_objective(self, trial):
+        raise NotImplementedError
+
+    def get_default_params(self):
+        raise NotImplementedError
+
+    def _get_params_for(self, model):
         raise NotImplementedError
 
     def __call__(self, trial):
@@ -118,18 +130,18 @@ class CVObjective(abc.ABC):
             return_train_score=True,
             verbose=14,
         )
+
         self._model = clf_obj
-        self.callback_result_tracker(
-            trial.number, params=trial.params, metrics=result)
+
+        trial.set_user_attr('metrics', result)
+        trial.set_user_attr('run_id', self.run_id)
+        trial.set_user_attr('model_params', self._get_params_for(self._model))
 
         score_to_optimize = [
             result.get("test_{}".format(param_x)).mean() for param_x in self.refit_params
         ]
 
         return tuple(score_to_optimize)
-
-    def callback_result_tracker(self, *args, **kwargs):
-        self.result_tracker_callback(*args, **kwargs)
 
 
 class LRObjective(CVObjective):
@@ -145,6 +157,9 @@ class LRObjective(CVObjective):
             "n_jobs": -1,
         }
         return default_params
+
+    def _get_params_for(self, model):
+        return model.get_params()
 
     def model_init(self, **kwargs):
         return LogisticRegression(**kwargs)
@@ -178,6 +193,9 @@ class RFObjective(CVObjective):
             "n_jobs": -1,
         }
         return default_params
+
+    def _get_params_for(self, model):
+        return model.get_params()
 
     def model_init(self, **kwargs):
         return RandomForestClassifier(**kwargs)
@@ -246,6 +264,14 @@ class MLPObjective(CVObjective):
     def get_default_params(self):
         pass
 
+    def _get_params_for(self, model):
+        params = {}
+
+        params.update(model.get_params_for("module"))
+        params.update(model.get_params_for("optimizer"))
+
+        return params
+
     def model_init(self, **kwargs):
         net = NeuralNetClassifier(
             module=MLP,
@@ -273,19 +299,21 @@ class MLPObjective(CVObjective):
         return clf_obj
 
 
-def create_cv_objective(name, X_train, y_train, scoring, cv, result_tracker_callback,
-                        refit_params=["AUCPR", "AUCROC"],):
+def create_cv_objective(name, X_train, y_train, scoring, cv,
+                        refit_params=["AUCPR", "AUCROC"], run_id: Union[str, None] = None):
     if name == "LR":
-        return LRObjective(X_train=X_train, y_train=y_train, scoring=scoring, cv=cv, result_tracker_callback=result_tracker_callback,
-                           refit_params=refit_params)
+        return LRObjective(X_train=X_train, y_train=y_train, scoring=scoring, cv=cv,
+                           refit_params=refit_params, run_id=run_id)
     elif name == "RF":
 
-        return RFObjective(X_train=X_train, y_train=y_train, scoring=scoring, cv=cv, result_tracker_callback=result_tracker_callback,
-                           refit_params=refit_params)
+        return RFObjective(X_train=X_train, y_train=y_train, scoring=scoring, cv=cv,
+                           refit_params=refit_params, run_id=run_id)
     elif name == "MLP":
 
-        return MLPObjective(X_train=torch.tensor(X_train, dtype=torch.float32), y_train=torch.tensor(y_train, dtype=torch.float32).unsqueeze(1), scoring=scoring, cv=cv, result_tracker_callback=result_tracker_callback,
-                            refit_params=refit_params, epochs=50)
+        return MLPObjective(X_train=torch.tensor(X_train, dtype=torch.float32),
+                            y_train=torch.tensor(
+                                y_train, dtype=torch.float32).unsqueeze(1),
+                            scoring=scoring, cv=cv, refit_params=refit_params, epochs=50, run_id=run_id)
 
 
 def run_nested_cv(candidates: list,
@@ -300,6 +328,7 @@ def run_nested_cv(candidates: list,
                   n_jobs: int = 1,
                   refit_param: str = "fbeta",
                   verbose: int = 14,
+                  outdir: Path = None
                   ) -> dict:
     """Nested cross validation routine.
     Inner cv loop performs hp optimization on all folds and surfaces
@@ -354,23 +383,26 @@ def run_nested_cv(candidates: list,
 
         for fold_i, (train_idx, test_idx) in enumerate(outer_cv.split(X, y)):
 
-            objective = create_cv_objective(
-                name=name,
-                X_train=X[train_idx, :],
-                y_train=y[train_idx],
-                cv=inner_cv,
-                result_tracker_callback=tracker_callback_fn,
-                scoring=scoring,
-                refit_params=["AUCPR", "AUCROC"],
-            )
-
             # generate study name based on model, fold and some random word
             study_name = generate_study_name(study_prefix, name, fold_i)
+
             study = optuna.create_study(
                 directions=["maximize", "maximize"],
                 study_name=study_name,
             )
 
+            # create objective
+            objective = create_cv_objective(
+                name=name,
+                X_train=X[train_idx, :],
+                y_train=y[train_idx],
+                cv=inner_cv,
+                scoring=scoring,
+                refit_params=["AUCPR", "AUCROC"],
+                run_id=study_name
+            )
+
+            # set calbacks
             wandb_kwargs = {"project": "bioblp-dpi",
                             "entity": "discoverylab",
                             "tags": [study_name, study_prefix, name]}
@@ -378,25 +410,29 @@ def run_nested_cv(candidates: list,
             wandb_callback = WeightsAndBiasesCallback(
                 metric_name=["AUCPR", "AUCROC"], wandb_kwargs=wandb_kwargs, as_multirun=True)
 
+            file_tracker_callback = FileResultTracker()
+
+            # perform optimisation
             study.optimize(objective, n_trials=inner_n_iter,
-                           callbacks=[wandb_callback])
+                           callbacks=[wandb_callback, file_tracker_callback])
 
+            trials_file = outdir.joinpath(f"{study_name}.csv")
+
+            study.trials_dataframe().to_csv(
+                trials_file, mode='a', header=not os.path.exists(trials_file))
+
+            # need to finish wandb run between iterations
             wandb.finish()
-
-            trials = study.best_trials
-            logger.info(trials)
-
-            trial_with_highest_AUCPR = max(
-                study.best_trials, key=lambda t: t.values[0])
-            logger.info(
-                f"Trial with highest AUPRC: {trial_with_highest_AUCPR}")
-            logger.info(f"\tnumber: {trial_with_highest_AUCPR.number}")
-            logger.info(f"\tparams: {trial_with_highest_AUCPR.params}")
-            logger.info(f"\tvalues: {trial_with_highest_AUCPR.values}")
 
             #
             # Refit with best params and score
             #
+
+            trial_with_highest_AUCPR = max(
+                study.best_trials, key=lambda t: t.values[0])
+
+            logger.info(
+                f"Trial with highest AUPRC: {trial_with_highest_AUCPR}")
 
             logger.info(
                 f"Refitting model {name} with best params: {trial_with_highest_AUCPR.params}...")
@@ -408,6 +444,7 @@ def run_nested_cv(candidates: list,
             model = objective.model_init(**trial_with_highest_AUCPR.params)
 
             if name == "MLP":
+                # pytorch model needs tensor input
                 Xt = torch.tensor(X, dtype=torch.float32)
                 yt = torch.tensor(y, dtype=torch.float32).unsqueeze(1)
 
@@ -463,7 +500,7 @@ def run(args):
     outer_n_folds = experiment_config["outer_n_folds"]
     optimize_param = experiment_config["param"]
 
-    shuffle = False
+    shuffle = True
 
     exp_output = defaultdict(dict)
     exp_output["settings"] = {
@@ -532,6 +569,7 @@ def run(args):
         n_jobs=n_proc,
         refit_param=optimize_param,
         random_state=SEED,
+        outdir=out_dir
     )
 
     for algo, scores in nested_cv_scores.items():
