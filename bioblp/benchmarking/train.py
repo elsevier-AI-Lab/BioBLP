@@ -9,6 +9,7 @@ import abc
 
 import wandb
 
+from torch import nn
 from argparse import ArgumentParser
 from pathlib import Path
 from time import time
@@ -31,7 +32,8 @@ from collections import defaultdict
 from sklearn.model_selection import StratifiedKFold
 from sklearn.model_selection import RandomizedSearchCV
 from sklearn.model_selection import cross_validate
-
+from skorch import NeuralNet
+from skorch import NeuralNetClassifier
 
 from bioblp.data import COL_EDGE, COL_SOURCE, COL_TARGET
 from bioblp.logging import get_logger
@@ -44,26 +46,7 @@ SEED = 42
 DATA_DIR = Path("/home/jovyan/BioBLP/data/")
 DATA_SHARED = Path("/home/jovyan/workbench-shared-folder/bioblp")
 
-#
-# DEFAULT PARAMETERS FOR RR
-#
-# rf_default_params = {
-#     "n_estimators": 300,
-#     "criterion": "gini",
-#     "min_samples_split": 2,
-#     "min_samples_leaf": 1,
-#     "max_features": "sqrt",
-#     "random_state": SEED,
-#     "n_jobs": -1,
-# }
-
-# lr_default_params = {
-#     "C": 1.0,
-#     "random_state": SEED,
-#     "max_iter": 1000,
-#     "solver": "lbfgs",
-#     "n_jobs": -1,
-# }
+DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
 def get_random_string(length):
@@ -101,8 +84,13 @@ def get_scorers():
     return scorer
 
 
+def tracker_callback_fn(trial, params, metrics, **kwargs):
+    logger.info(
+        f"============== tracker | \n trial: {trial} \n params: {params} \n metrics: {metrics}\n and args: {kwargs}")
+
+
 class CVObjective(abc.ABC):
-    def __init__(self, X_train, y_train, cv, scoring, result_tracker_callback, refit_params):
+    def __init__(self, X_train, y_train, cv, scoring, result_tracker_callback, refit_params, run_id: str):
         self.best_model = None
         self._model = None
 
@@ -131,21 +119,14 @@ class CVObjective(abc.ABC):
             verbose=14,
         )
         self._model = clf_obj
-        self.callback_result_tracker(trial.number, **result)
+        self.callback_result_tracker(
+            trial.number, params=trial.params, metrics=result)
 
         score_to_optimize = [
             result.get("test_{}".format(param_x)).mean() for param_x in self.refit_params
         ]
 
         return tuple(score_to_optimize)
-
-    def callback_store_best(self, study, trial):
-
-        best_trial = max(
-            study.best_trials, key=lambda t: t.values[0])
-
-        if best_trial == trial:
-            self.best_model = self._model
 
     def callback_result_tracker(self, *args, **kwargs):
         self.result_tracker_callback(*args, **kwargs)
@@ -230,6 +211,68 @@ class RFObjective(CVObjective):
         return clf_obj
 
 
+class MLP(nn.Module):
+    def __init__(self, input_dims=256, hidden_dims=[256, 256], dropout=0.3, output_dims=2):
+        super().__init__()
+        layers = []
+
+        # Dense 1
+        layers += [
+            nn.Linear(input_dims, hidden_dims[0]),
+            nn.ReLU(inplace=True),
+            nn.Dropout(dropout)
+        ]
+        # Dense 2
+        layers += [
+            nn.Linear(hidden_dims[0], hidden_dims[1]),
+            nn.ReLU(inplace=True),
+        ]
+        # Output
+        layers += [
+            nn.Linear(hidden_dims[1], output_dims)
+        ]
+
+        self.layers = nn.Sequential(*layers)
+
+    def forward(self, X, **kwargs):
+        return self.layers(X)
+
+
+class MLPObjective(CVObjective):
+    def __init__(self, epochs, **kwargs):
+        super().__init__(**kwargs)
+        self.epochs = epochs
+
+    def get_default_params(self):
+        pass
+
+    def model_init(self, **kwargs):
+        net = NeuralNetClassifier(
+            module=MLP,
+            module__input_dims=self.X_train.shape[1],
+            module__output_dims=1,
+            max_epochs=self.epochs,
+            criterion=nn.BCEWithLogitsLoss,
+            optimizer=torch.optim.Adagrad,
+            batch_size=128,
+            train_split=None,
+            callbacks=[],
+            device=DEVICE,
+            **kwargs,
+        )
+
+        return net
+
+    def _clf_objective(self, trial):
+
+        lr = trial.suggest_float("optimizer__lr", 1e-5, 1e-1, log=True)
+        dropout = trial.suggest_float("module__dropout", 0.1, 0.5, step=0.1)
+
+        clf_obj = self.model_init(optimizer__lr=lr, module__dropout=dropout)
+
+        return clf_obj
+
+
 def create_cv_objective(name, X_train, y_train, scoring, cv, result_tracker_callback,
                         refit_params=["AUCPR", "AUCROC"],):
     if name == "LR":
@@ -239,10 +282,10 @@ def create_cv_objective(name, X_train, y_train, scoring, cv, result_tracker_call
 
         return RFObjective(X_train=X_train, y_train=y_train, scoring=scoring, cv=cv, result_tracker_callback=result_tracker_callback,
                            refit_params=refit_params)
+    elif name == "MLP":
 
-
-def tracker_callback_fn(trial, **kwargs):
-    logger.info(f"tracker | trial: {trial}: {kwargs}")
+        return MLPObjective(X_train=torch.tensor(X_train, dtype=torch.float32), y_train=torch.tensor(y_train, dtype=torch.float32).unsqueeze(1), scoring=scoring, cv=cv, result_tracker_callback=result_tracker_callback,
+                            refit_params=refit_params, epochs=50)
 
 
 def run_nested_cv(candidates: list,
@@ -364,12 +407,28 @@ def run_nested_cv(candidates: list,
 
             model = objective.model_init(**trial_with_highest_AUCPR.params)
 
-            model.fit(X[train_idx, :], y[train_idx])
+            if name == "MLP":
+                Xt = torch.tensor(X, dtype=torch.float32)
+                yt = torch.tensor(y, dtype=torch.float32).unsqueeze(1)
 
-            logger.info(f"Scoring  model...")
-            scores_i = defaultdict(float)
-            for param, scorer in scoring.items():
-                scores_i[param] = scorer(model, X[test_idx, :], y[test_idx])
+                model.fit(Xt[train_idx, :], yt[train_idx])
+
+                logger.info(f"Scoring  model...")
+                scores_i = defaultdict(float)
+                for param, scorer in scoring.items():
+                    scores_i[param] = scorer(
+                        model, Xt[test_idx, :], yt[test_idx])
+
+            else:
+
+                model.fit(X[train_idx, :], y[train_idx])
+
+                logger.info(f"Scoring  model...")
+                scores_i = defaultdict(float)
+
+                for param, scorer in scoring.items():
+                    scores_i[param] = scorer(
+                        model, X[test_idx, :], y[test_idx])
 
             wandb.log(scores_i)
             wandb.finish()
@@ -386,12 +445,6 @@ def run(args):
 
     # reproducibility
     SEED = 2022
-
-    # def set_seeds(seed: int = SEED):
-    #     os.environ['PYTHONHASHSEED'] = str(SEED)
-    #     np.random.seed(SEED)
-    #     tf.random.set_seed(SEED)
-    #     rn.seed(SEED)
 
     experiment_config = {
         "n_proc": args.n_proc,
@@ -410,9 +463,7 @@ def run(args):
     outer_n_folds = experiment_config["outer_n_folds"]
     optimize_param = experiment_config["param"]
 
-    # set_seeds(seed=SEED)
-
-    shuffle = True
+    shuffle = False
 
     exp_output = defaultdict(dict)
     exp_output["settings"] = {
@@ -454,12 +505,17 @@ def run(args):
     rf_label = "RF"
     clf_rf = None
 
+    MLP_label = "MLP"
+    clf_mlp = None
+
     ############
     # Compare models
     ############
     candidates = [
-        (lr_label, clf_lr),
-        (rf_label, clf_rf)
+        # (lr_label, clf_lr),
+        # (rf_label, clf_rf),
+        (MLP_label, clf_mlp)
+
     ]
 
     scorer = get_scorers()
