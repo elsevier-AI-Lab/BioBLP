@@ -36,12 +36,12 @@ install_poetry:  ## installs poetry. Remember to `source /home/jovyan/.poetry/en
 
 install:
 	poetry install
-	poetry export -f requirements.txt --without-hashes  --dev --output requirements.txt
+	poetry export -f requirements.txt --without-hashes  --with dev --output requirements.txt
 
 
 update:
 	poetry update
-	poetry export -f requirements.txt --without-hashes  --dev --output requirements.txt
+	poetry export -f requirements.txt --without-hashes  --with dev --output requirements.txt
 
 test:
 	make lint
