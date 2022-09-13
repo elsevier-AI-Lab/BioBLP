@@ -29,8 +29,8 @@ def prepare_dpi_samples(pos_df, entity_to_id_map, relation_to_id_map,
                                                       relation_to_id=relation_to_id_map)
     if map_to_kgem_ids:
         # map positive instances to KGEM integer ids
-        pos_df[COL_SOURCE] = pos_df[COL_SOURCE].map(lambda x: entity_to_id_map[x])
-        pos_df[COL_TARGET] = pos_df[COL_TARGET].map(lambda x: entity_to_id_map[x])
+        pos_df[COL_SOURCE] = pos_df[COL_SOURCE].map(lambda x: entity_to_id_map.get(x, 0))
+        pos_df[COL_TARGET] = pos_df[COL_TARGET].map(lambda x: entity_to_id_map.get(x,0))
         pos_df[COL_EDGE] = pos_df[COL_EDGE].map(lambda x: relation_to_id_map[x])
 
         neg_triples = generate_negative_triples(pos_triples,
