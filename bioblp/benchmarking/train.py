@@ -313,7 +313,7 @@ def create_cv_objective(name, X_train, y_train, scoring, cv,
         return MLPObjective(X_train=torch.tensor(X_train, dtype=torch.float32),
                             y_train=torch.tensor(
                                 y_train, dtype=torch.float32).unsqueeze(1),
-                            scoring=scoring, cv=cv, refit_params=refit_params, epochs=50, run_id=run_id)
+                            scoring=scoring, cv=cv, refit_params=refit_params, epochs=200, run_id=run_id)
 
 
 def run_nested_cv(candidates: list,
@@ -328,7 +328,8 @@ def run_nested_cv(candidates: list,
                   n_jobs: int = 1,
                   refit_param: str = "fbeta",
                   verbose: int = 14,
-                  outdir: Path = None
+                  outdir: Path = None,
+                  timestamp: str = None
                   ) -> dict:
     """Nested cross validation routine.
     Inner cv loop performs hp optimization on all folds and surfaces
@@ -372,7 +373,7 @@ def run_nested_cv(candidates: list,
 
     study_prefix = unique_study_prefix()
 
-    for name, clf_callback in candidates:
+    for name in candidates:
 
         outer_cv = StratifiedKFold(
             n_splits=outer_n_folds, shuffle=shuffle, random_state=random_state
@@ -416,10 +417,16 @@ def run_nested_cv(candidates: list,
             study.optimize(objective, n_trials=inner_n_iter,
                            callbacks=[wandb_callback, file_tracker_callback])
 
-            trials_file = outdir.joinpath(f"{study_name}.csv")
+            if timestamp is None:
+                timestamp = int(time())
 
-            study.trials_dataframe().to_csv(
-                trials_file, mode='a', header=not os.path.exists(trials_file))
+            trials_file = outdir.joinpath(f"{timestamp}-{study_prefix}.csv")
+
+            study_trials_df = study.trials_dataframe()
+            study_trials_df["study_name"] = study_name
+
+            study_trials_df.to_csv(
+                trials_file, mode='a', header=not os.path.exists(trials_file), index=False)
 
             # need to finish wandb run between iterations
             wandb.finish()
@@ -514,6 +521,7 @@ def run(args):
     }
 
     start = time()
+    run_timestamp = int(start)
 
     logger.info("Starting model building script at {}.".format(start))
 
@@ -537,21 +545,22 @@ def run(args):
     ############
 
     lr_label = "LR"
-    clf_lr = None
-
     rf_label = "RF"
-    clf_rf = None
-
     MLP_label = "MLP"
-    clf_mlp = None
 
     ############
     # Compare models
     ############
+    # candidates = [
+    #     (lr_label, clf_lr),
+    #     # (rf_label, clf_rf),
+    #     # (MLP_label, clf_mlp)
+
+    # ]
     candidates = [
-        # (lr_label, clf_lr),
-        # (rf_label, clf_rf),
-        (MLP_label, clf_mlp)
+        lr_label,
+        # rf_label,
+        MLP_label
 
     ]
 
@@ -569,7 +578,8 @@ def run(args):
         n_jobs=n_proc,
         refit_param=optimize_param,
         random_state=SEED,
-        outdir=out_dir
+        outdir=out_dir,
+        timestamp=run_timestamp
     )
 
     for algo, scores in nested_cv_scores.items():
@@ -579,7 +589,6 @@ def run(args):
 
     logger.info(exp_output)
 
-    run_timestamp = int(time())
     file_out = out_dir.joinpath(
         "nested_cv_scores_{}.npy".format(run_timestamp))
     logger.info("Saving to {}".format(file_out))
