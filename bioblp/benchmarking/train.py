@@ -25,6 +25,7 @@ from sklearn.metrics import fbeta_score
 from sklearn.metrics import make_scorer
 from sklearn.metrics import accuracy_score
 from sklearn.metrics import precision_recall_curve
+from sklearn.metrics import roc_curve
 from sklearn.metrics import auc
 
 from collections import defaultdict
@@ -45,8 +46,6 @@ logger = get_logger(__name__)
 
 
 SEED = 42
-DATA_DIR = Path("/home/jovyan/BioBLP/data/")
-DATA_SHARED = Path("/home/jovyan/workbench-shared-folder/bioblp")
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -74,8 +73,16 @@ def aupr_score(y_true, y_pred):
     return auc(recall, precision)
 
 
+def get_auc_scorers():
+    scorers = {
+        "PRCURVE": make_scorer(precision_recall_curve, needs_proba=True),
+        "ROCCURVE": make_scorer(roc_curve, needs_proba=True)
+    }
+    return scorers
+
+
 def get_scorers():
-    scorer = {
+    scorers = {
         "AUCROC": make_scorer(roc_auc_score, needs_proba=True),
         "f1": make_scorer(fbeta_score, beta=1, average="micro"),
         "precision": make_scorer(precision_score),
@@ -83,7 +90,7 @@ def get_scorers():
         "accuracy": make_scorer(accuracy_score),
         "AUCPR": make_scorer(aupr_score, needs_proba=True),
     }
-    return scorer
+    return scorers
 
 
 class FileResultTracker():
@@ -316,6 +323,15 @@ def create_cv_objective(name, X_train, y_train, scoring, cv,
                             scoring=scoring, cv=cv, refit_params=refit_params, epochs=200, run_id=run_id)
 
 
+def transform_model_inputs(X, y, model_name: str):
+    if model_name == "MLP":
+        Xt = torch.tensor(X, dtype=torch.float32)
+        yt = torch.tensor(y, dtype=torch.float32).unsqueeze(1)
+        return Xt, yt
+
+    return X, y
+
+
 def run_nested_cv(candidates: list,
                   X,
                   y,
@@ -326,7 +342,7 @@ def run_nested_cv(candidates: list,
                   shuffle: bool = False,
                   random_state: int = SEED,
                   n_jobs: int = 1,
-                  refit_param: str = "fbeta",
+                  refit_params: list = ["AUCPR", "AUCROC"],
                   verbose: int = 14,
                   outdir: Path = None,
                   timestamp: str = None
@@ -355,8 +371,8 @@ def run_nested_cv(candidates: list,
         seed for rng, by default SEED
     n_jobs : int, optional
         multiprocessing, by default 10
-    refit_param : str, optional
-        which metric to optimize for and return refit model, by default 'fbeta'
+    refit_params : list(str), optional
+        which metric to optimize for and return refit model, by default ['AUCPR', 'AUCROC']
     verbose : int, optional
         level of console feedback, by default 0
     Returns
@@ -381,6 +397,8 @@ def run_nested_cv(candidates: list,
 
         outer_scores[name] = defaultdict(dict)
         outer_scores[name]["scores"] = defaultdict(list)
+        outer_scores[name]["curves"] = defaultdict(list)
+        outer_scores[name]["params"] = []
 
         for fold_i, (train_idx, test_idx) in enumerate(outer_cv.split(X, y)):
 
@@ -399,7 +417,7 @@ def run_nested_cv(candidates: list,
                 y_train=y[train_idx],
                 cv=inner_cv,
                 scoring=scoring,
-                refit_params=["AUCPR", "AUCROC"],
+                refit_params=refit_params,
                 run_id=study_name
             )
 
@@ -409,7 +427,7 @@ def run_nested_cv(candidates: list,
                             "tags": [study_name, study_prefix, name]}
 
             wandb_callback = WeightsAndBiasesCallback(
-                metric_name=["AUCPR", "AUCROC"], wandb_kwargs=wandb_kwargs, as_multirun=True)
+                metric_name=refit_params, wandb_kwargs=wandb_kwargs, as_multirun=True)
 
             file_tracker_callback = FileResultTracker()
 
@@ -448,31 +466,25 @@ def run_nested_cv(candidates: list,
             wandb.init(
                 **wandb_kwargs, config=trial_with_highest_AUCPR.params)
 
-            model = objective.model_init(**trial_with_highest_AUCPR.params)
+            best_params_i = trial_with_highest_AUCPR.params
+            model = objective.model_init(**best_params_i)
+            outer_scores[name]["params"].append(best_params_i)
 
-            if name == "MLP":
-                # pytorch model needs tensor input
-                Xt = torch.tensor(X, dtype=torch.float32)
-                yt = torch.tensor(y, dtype=torch.float32).unsqueeze(1)
+            # torch tensor transform if MLP else return same
+            X_t, y_t = transform_model_inputs(X, y, model_name=name)
 
-                model.fit(Xt[train_idx, :], yt[train_idx])
+            model.fit(X_t[train_idx, :], y_t[train_idx])
 
-                logger.info(f"Scoring  model...")
-                scores_i = defaultdict(float)
-                for param, scorer in scoring.items():
-                    scores_i[param] = scorer(
-                        model, Xt[test_idx, :], yt[test_idx])
+            logger.info(f"Scoring  model...")
+            scores_i = defaultdict(float)
+            for param, scorer in scoring.items():
+                # test set
+                scores_i[f"test_{param}"] = scorer(
+                    model, X_t[test_idx, :], y_t[test_idx])
 
-            else:
-
-                model.fit(X[train_idx, :], y[train_idx])
-
-                logger.info(f"Scoring  model...")
-                scores_i = defaultdict(float)
-
-                for param, scorer in scoring.items():
-                    scores_i[param] = scorer(
-                        model, X[test_idx, :], y[test_idx])
+                # on train
+                scores_i[f"train_{param}"] = scorer(
+                    model, X_t[train_idx, :], y_t[train_idx])
 
             wandb.log(scores_i)
             wandb.finish()
@@ -480,6 +492,16 @@ def run_nested_cv(candidates: list,
             # accumulate scores,
             for k_i, v_i in scores_i.items():
                 outer_scores[name]["scores"][k_i].append(v_i)
+            curves_i = defaultdict(list)
+
+            # compute curves
+            for param, scorer in get_auc_scorers().items():
+                curves_i[f"{param}"] = scorer(
+                    model, X_t[test_idx, :], y_t[test_idx])
+
+             # accumulate curve scores
+            for k_i, v_i in curves_i.items():
+                outer_scores[name]["curves"][k_i].append(v_i)
 
     return outer_scores
 
@@ -488,36 +510,27 @@ def run(args):
     """Perform train run"""
 
     # reproducibility
-    SEED = 2022
-
-    experiment_config = {
-        "n_proc": args.n_proc,
-        "n_iter": args.n_iter,
-        "inner_n_folds": args.inner_n_folds,
-        "outer_n_folds": args.outer_n_folds,
-        "param": args.param,
-    }
-
-    # data_dir = experiment_base_path.joinpath(experiment_config["data_dir"])
-    out_dir = Path(args.outdir)
-
-    n_proc = experiment_config["n_proc"]
-    n_iter = experiment_config["n_iter"]
-    inner_n_folds = experiment_config["inner_n_folds"]
-    outer_n_folds = experiment_config["outer_n_folds"]
-    optimize_param = experiment_config["param"]
-
+    # SEED is set as global
     shuffle = True
+    refit_params = ["AUCPR", "AUCROC"]
+
+    out_dir = Path(args.outdir)
+    data_dir = Path(args.data_dir)
+
+    n_proc = args.n_proc
+    n_iter = args.n_iter
+    inner_n_folds = args.inner_n_folds
+    outer_n_folds = args.outer_n_folds
 
     exp_output = defaultdict(dict)
-    exp_output["settings"] = {
-        # 'data_dir': data_dir,
+    exp_output["config"] = {
+        "n_proc": n_proc,
         "n_iter": n_iter,
         "inner_n_folds": inner_n_folds,
         "outer_n_folds": outer_n_folds,
-        "optimize_param": optimize_param,
-        "shuffle": shuffle,
+        "data_dir": data_dir,
         "seed": SEED,
+        "shuffle": shuffle
     }
 
     start = time()
@@ -530,8 +543,8 @@ def run(args):
     ############
     logger.info("Loading training data...")
 
-    X_train = np.load(DATA_DIR.joinpath("features/dpi_X.npy"))
-    y_train = np.load(DATA_DIR.joinpath("features/dpi_y.npy"))
+    X_train = np.load(data_dir.joinpath("X.npy"))
+    y_train = np.load(data_dir.joinpath("y.npy"))
 
     logger.info(
         "Resulting shapes X_train: {}, y_train: {}".format(
@@ -551,16 +564,11 @@ def run(args):
     ############
     # Compare models
     ############
-    # candidates = [
-    #     (lr_label, clf_lr),
-    #     # (rf_label, clf_rf),
-    #     # (MLP_label, clf_mlp)
 
-    # ]
     candidates = [
         lr_label,
         # rf_label,
-        MLP_label
+        # MLP_label
 
     ]
 
@@ -576,7 +584,7 @@ def run(args):
         outer_n_folds=outer_n_folds,
         shuffle=shuffle,
         n_jobs=n_proc,
-        refit_param=optimize_param,
+        refit_params=refit_params,
         random_state=SEED,
         outdir=out_dir,
         timestamp=run_timestamp
@@ -601,21 +609,20 @@ def run(args):
 
 if __name__ == "__main__":
     parser = ArgumentParser(description="Run model training procedure")
+    parser.add_argument("--data_dir", type=str,
+                        help="Path to pick up featurised data")
     parser.add_argument("--outdir", type=str, help="Path to write output")
     parser.add_argument(
-        "--n_proc", type=int, default=1, help="Path to experiment toml file"
+        "--n_proc", type=int, default=1, help="Number of cores to use in process."
     )
     parser.add_argument(
-        "--n_iter", type=int, default=2, help="Path to experiment toml file"
+        "--n_iter", type=int, default=2, help="Number of iterations in HPO in inner cv."
     )
     parser.add_argument(
-        "--inner_n_folds", type=int, default=3, help="Path to experiment toml file"
+        "--inner_n_folds", type=int, default=3, help="Folds to use in inner CV"
     )
     parser.add_argument(
-        "--outer_n_folds", type=int, default=3, help="Path to experiment toml file"
-    )
-    parser.add_argument(
-        "--param", type=str, default="fbeta", help="Path to experiment toml file"
+        "--outer_n_folds", type=int, default=3, help="Folds to use in outer CV"
     )
 
     args = parser.parse_args()
