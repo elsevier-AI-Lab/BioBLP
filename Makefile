@@ -32,16 +32,16 @@ setup:
 	@echo $(shell poetry --version) || "Install Poetry"
 
 install_poetry:  ## installs poetry. Remember to `source /home/jovyan/.poetry/env` from a terminal after running this recipe. Need only be run once
-	curl -sSL https://raw.githubusercontent.com/python-poetry/poetry/master/install-poetry.py | python3 -
+	curl -sSL https://install.python-poetry.org | python3 -
 
 install:
 	poetry install
-	poetry export -f requirements.txt --without-hashes  --dev --output requirements.txt
+	poetry export -f requirements.txt --without-hashes  --with dev --output requirements.txt
 
 
 update:
 	poetry update
-	poetry export -f requirements.txt --without-hashes  --dev --output requirements.txt
+	poetry export -f requirements.txt --without-hashes  --with dev --output requirements.txt
 
 test:
 	make lint
