@@ -56,7 +56,8 @@ class LookupEmbedding():
                 json.dump(self.metadata, f)
 
 
-def NoiseEmbedding(entities, random_seed: int = 42, dim=128, emb_range=(-1, 1)) -> LookupEmbedding:
+def create_noise_embeddings(entities, random_seed: int = 42, dim=128, emb_range=(-1, 1),
+                            outdir=None, outname=None) -> LookupEmbedding:
     entity_to_id = build_entity_to_id(entities)
 
     emb_shape = (len(entities), dim)
@@ -75,13 +76,68 @@ def NoiseEmbedding(entities, random_seed: int = 42, dim=128, emb_range=(-1, 1)) 
         "emb_range": emb_range
     }
 
-    return LookupEmbedding(embeddings=embeddings,
-                           entity_to_id=entity_to_id,
-                           metadata=metadata)
+    lookup = LookupEmbedding(embeddings=embeddings,
+                             entity_to_id=entity_to_id,
+                             metadata=metadata)
+
+    if outdir is not None:
+        assert outname is not None, "need outout name"
+
+        outdir = Path(outdir)
+
+        lookup_embedding.save(outdir, outname)
+
+    return lookup
 
 
-def MorganFingerpintEmbedding(mols, smiles) -> LookupEmbedding:
-    print('fsdf')
+def create_moltrans_lookup_embedding(data_dir, outdir=None, outname=None) -> LookupEmbedding:
+    """Create lookup embedding files from raw Molecular Transformer files.
+    """
+    drug_id_file = "drug_ids.txt"
+    drug_smiles_file = "drug_smiles.txt"
+    smiles_emb_file = "drug_smiles_full.npz"
+
+    data_dir = Path(data_dir)
+
+    drug_df = pd.read_csv(data_dir.joinpath(drug_id_file), header=None)
+    drug_df.columns = ["db_id"]
+    drug_smiles_df = pd.read_csv(
+        data_dir.joinpath(drug_smiles_file), header=None)
+
+    drug_df["smiles"] = drug_smiles_df
+
+    drug_ids_sorted = sorted(drug_df['db_id'].values.tolist())
+    id2smiles = {x[0]: x[1] for x in drug_df.values}
+
+    # e2id
+    entity_to_id = {idx: k for idx, k in enumerate(drug_ids_sorted)}
+
+    emb_records = []
+    with np.load(data_dir.joinpath(smiles_emb_file)) as data:
+        for drug_id in drug_ids_sorted:
+            smile = id2smiles.get(drug_id)
+
+            emb_tensor = torch.tensor(data[smile])
+            emb_mean_pool = torch.mean(emb_tensor, dim=0)  # is this best way?
+            emb_records.append(emb_mean_pool)
+
+    # embeddings
+    embeddings = torch.stack(emb_records, dim=0)
+
+    # meta
+    metadata = {}
+
+    lookup_embedding = LookupEmbedding(embeddings=embeddings,
+                                       entity_to_id=entity_to_id,
+                                       metadata=metadata)
+    if outdir is not None:
+        assert outname is not None, "need outout name"
+
+        outdir = Path(outdir)
+
+        lookup_embedding.save(outdir, outname)
+
+    return lookup_embedding
 
 
 def main(args):
