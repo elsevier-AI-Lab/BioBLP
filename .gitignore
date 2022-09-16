@@ -140,3 +140,6 @@ models/
 
 # PyCharm
 .idea
+# local data
+data/
+models/
