@@ -15,6 +15,7 @@ torch = "^1.11.0"
 sklearn = "^0.0"
 skorch = "^0.11.0"
 optuna = "3.0.1"
+rdkit = "^2022.3.5"
 
 [tool.poetry.dev-dependencies]
 
