@@ -1,6 +1,7 @@
 import torch
 import json
 import abc
+import pandas as pd
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -58,6 +59,8 @@ class LookupEmbedding():
 
 def create_noise_embeddings(entities, random_seed: int = 42, dim=128, emb_range=(-1, 1),
                             outdir=None, outname=None) -> LookupEmbedding:
+    if not dim:
+        dim = 128
     entity_set = set(entities)
     entity_to_id = {k: idx for idx, k in enumerate(sorted(list(entity_set)))}
 
@@ -86,7 +89,7 @@ def create_noise_embeddings(entities, random_seed: int = 42, dim=128, emb_range=
 
         outdir = Path(outdir)
 
-        lookup_embedding.save(outdir, outname)
+        lookup.save(outdir, outname)
 
     return lookup
 
