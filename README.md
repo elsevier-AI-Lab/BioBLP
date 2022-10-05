@@ -33,7 +33,7 @@ Otherwise:
 
 Custom usage:
 ```bash
-python -m bioblp.benchmarking.preprocess --dataset=resnet --data_path=./data/raw --preprocessed_path=./data/preprocessed --encode_relation_endpoint_type --encode_relation_effect --filter_relation_refcount=3
+$ python -m bioblp.benchmarking.featurize -i data/benchmarks/processed/dpi_benchmark_p2n-1-10.tsv -o data/features -t kgem -f models/1baon0eg/ -j concatenate
 ```
 
 
