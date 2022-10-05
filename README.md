@@ -26,6 +26,16 @@ Otherwise:
     make create_ipython_kernel
 ```
 
+### Benchmark tasks
+* Pre-generate the input dataset with flags indicating if they are known or novel links. 
+* Run `bioblp.benchmarking.preprocess.py` to prepare BM dataset for ML by shuffling, splits, etc.
+* `bioblp.benchmarking.featurize.py` can be used to featurize a list of pair wise entities into vectors composed from individual vector entities.
+
+Custom usage:
+```bash
+python -m bioblp.benchmarking.preprocess --dataset=resnet --data_path=./data/raw --preprocessed_path=./data/preprocessed --encode_relation_endpoint_type --encode_relation_effect --filter_relation_refcount=3
+```
+
 
 ### 20220520 - Archived stuff below
 
@@ -56,27 +66,7 @@ make set_kernel
 ## Training experiments 
 
 ### Fetch the data for training
-In order to access the data this data fetch needs to be performed on the graph environment. The following environment variables need to be set (in `.env`) in order to authenticate with the database:
 
-```.env
-export TG_HOST="<HOSTNAME>"
-export TG_GRAPHNAME="<GRAPHNAME>"
-export TG_TOKEN="<YOUR_SECRET>"
-export TG_USERNAME="<YOUR_USERNAME>"
-export TG_PASSWORD="<YOUR_PASSWORD>"
-
-```
-
-The query endpoints and parameters are preconfigured in `bioblp.utils.data`. This performs
-
-- Establishes connection with Graph database
-- Performs fetch (this may take a while depending on the size of graph)
-- Performs essential preprocessing
-
-Execute this task as follows:
-```bash
-python bioblp/utils/data.py --dataset=DSP-mini --data_path=./data/raw
-```
 ### Preprocessing
 
 The `bioblp.preprocessing` module contains the code to perform additional preprocessing to the triples.
