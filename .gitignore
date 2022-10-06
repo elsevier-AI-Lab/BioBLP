@@ -129,12 +129,17 @@ dmypy.json
 .pyre/
 
 # Data paths
-data/raw/*.tsv
-data/processed/*.tsv
-data/evaluation/drugbank/*.tsv
+data/
 
 # Generated artifacts
 wandb/
+models/
 
 # Editor
 .vscode
+
+# PyCharm
+.idea
+# local data
+data/
+models/

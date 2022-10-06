@@ -39,8 +39,8 @@ class WBIDCallback(TrainingCallback):
     We use it to get a file name for the stored model."""
     id = None
 
-    def post_train(self, *args, **kwargs):
-        if wandb.run is not None:
+    def post_epoch(self, *args, **kwargs):
+        if wandb.run is not None and WBIDCallback.id is None:
             WBIDCallback.id = wandb.run.id
 
 
@@ -58,8 +58,12 @@ def run(args: Arguments):
         args.train_triples,
         create_inverse_triples=args.add_inverses
     )
-    validation = TriplesFactory.from_path(args.valid_triples)
-    testing = TriplesFactory.from_path(args.test_triples)
+    validation = TriplesFactory.from_path(args.valid_triples,
+                                          entity_to_id=training.entity_to_id,
+                                          relation_to_id=training.relation_to_id)
+    testing = TriplesFactory.from_path(args.test_triples,
+                                       entity_to_id=training.entity_to_id,
+                                       relation_to_id=training.relation_to_id)
 
     logger.info(f'Loaded graph with {training.num_entities:,} entities')
     logger.info(f'{training.num_triples:,} training triples')
