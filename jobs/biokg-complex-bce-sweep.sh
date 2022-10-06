@@ -19,7 +19,7 @@ cd $TMPDIR/$PROJ_FOLDER
 
 source activate bioblp
 
-wandb agent --count 1 discoverylab/bioblp/a55th1sc
+wandb agent --count 1 discoverylab/bioblp/21oekub7
 
 # Keep files generated during job
 RESULTS_FOLDER=$HOME/$PROJ_FOLDER-$OUT_FOLDER
