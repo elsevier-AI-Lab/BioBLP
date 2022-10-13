@@ -14,7 +14,7 @@ class EntityPropertyPreprocessor:
                         entity_to_id: Mapping[str, int]
                         ) -> Tuple[Tensor, Tensor, Tensor]:
         """Read a file of entity properties, with one entity per line.
-        Expects at each line an entity name, a tab, an a property to be
+        Expects at each line an entity name, a tab, and a property to be
         encoded.
 
         Args:

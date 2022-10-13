@@ -1,5 +1,5 @@
 import pdb
-from typing import Mapping, Optional, Tuple
+from typing import Mapping, Optional, Tuple, Iterable
 
 from pykeen.nn.emb import RepresentationModule
 import torch
@@ -17,7 +17,7 @@ class PropertyEncoder(nn.Module):
     def __init__(self):
         super().__init__()
 
-    def preprocess_properties(self, file_path: str,
+    def preprocess_properties(self,
                               entity_to_id: Mapping[str, int]
                               ) -> Tuple[Tensor, Tensor, Tensor]:
         pass
@@ -49,12 +49,13 @@ class PretrainedLookupTableEncoder(PropertyEncoder):
 
         self.embeddings = nn.Embedding(num_proteins, in_dim)
         self.linear = nn.Linear(in_dim, dim)
+        self.file_path = file_path
 
-    def preprocess_properties(self, file_path: str,
+    def preprocess_properties(self,
                               entity_to_id: Mapping[str, int]
                               ) -> Tuple[Tensor, Tensor, Tensor]:
         preprocessor = PretrainedEmbeddingPreprocessor()
-        entity_ids, rows, data = preprocessor.preprocess_file(file_path,
+        entity_ids, rows, data = preprocessor.preprocess_file(self.file_path,
                                                               entity_to_id)
 
         self.embeddings.weight.data = data
@@ -68,18 +69,18 @@ class PretrainedLookupTableEncoder(PropertyEncoder):
 
 class MolecularFingerprintEncoder(PropertyEncoder):
     """Encoder of molecules described by a fingerprint"""
-    def __init__(self, in_features: int, dim: int):
+    def __init__(self, file_path: str, in_features: int, dim: int):
         super().__init__()
 
         self.layers = nn.Sequential(nn.Linear(in_features, in_features // 2),
                                     nn.ReLU(),
                                     nn.Linear(in_features // 2, dim))
 
-    def preprocess_properties(self, file_path: str,
+    def preprocess_properties(self,
                               entity_to_id: Mapping[str, int]
                               ) -> Tuple[Tensor, Tensor, Tensor]:
         processor = MolecularFingerprintPreprocessor()
-        data_tuple = processor.preprocess_file(file_path, entity_to_id)
+        data_tuple = processor.preprocess_file(self.file_path, entity_to_id)
 
         entities, data_idx, data = data_tuple
 
@@ -95,7 +96,7 @@ class TransformerTextEncoder(PropertyEncoder):
     the [CLS] symbol through a linear layer."""
     BASE_MODEL = 'allenai/scibert_scivocab_uncased'
 
-    def __init__(self, dim: int):
+    def __init__(self, file_path: str, dim: int):
         super().__init__()
         self.encoder = AutoModel.from_pretrained(self.BASE_MODEL)
 
@@ -104,13 +105,14 @@ class TransformerTextEncoder(PropertyEncoder):
 
         encoder_hidden_size = self.encoder.config.hidden_size
         self.linear_out = nn.Linear(encoder_hidden_size, dim)
+        self.file_path = file_path
 
-    def preprocess_properties(self, file_path: str,
+    def preprocess_properties(self,
                               entity_to_id: Mapping[str, int]
                               ) -> Tuple[Tensor, Tensor, Tensor]:
         tokenizer = AutoTokenizer.from_pretrained(self.BASE_MODEL)
         processor = TextEntityPropertyPreprocessor(tokenizer, max_length=32)
-        data_tuple = processor.preprocess_file(file_path, entity_to_id)
+        data_tuple = processor.preprocess_file(self.file_path, entity_to_id)
         entities, data_idx, data = data_tuple
 
         return entities, data_idx, data
@@ -135,7 +137,7 @@ class PropertyEncoderRepresentation(RepresentationModule):
     potentially different encoder.
     """
     def __init__(self, dim: int, entity_to_id: Mapping[str, int],
-                 file_to_encoder: Mapping[str, PropertyEncoder]):
+                 encoders: Iterable[PropertyEncoder]):
         num_entities = len(entity_to_id)
 
         super().__init__(max_id=num_entities, shape=(dim,))
@@ -145,9 +147,10 @@ class PropertyEncoderRepresentation(RepresentationModule):
         self.entity_data_idx = torch.zeros_like(self.entity_types)
         self.type_id_to_data = dict()
         self.type_id_to_encoder = dict()
-        for type_id, (file_path, encoder) in enumerate(file_to_encoder.items()):
+
+        for type_id, encoder in enumerate(encoders):
             self.type_id_to_encoder[type_id] = encoder
-            data_tuple = encoder.preprocess_properties(file_path, entity_to_id)
+            data_tuple = encoder.preprocess_properties(entity_to_id)
             entities, data_idx, data = data_tuple
 
             self.entity_types[entities] = type_id

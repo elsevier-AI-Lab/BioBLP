@@ -7,12 +7,18 @@ from tap import Tap
 import wandb
 
 from bioblp.logging import get_logger
+from bioblp.models import BioBLP
+from bioblp.utils.bioblp_utils import build_encoders
 
 
 class Arguments(Tap):
     train_triples: str
     valid_triples: str
     test_triples: str
+
+    protein_data: str = None
+    molecule_data: str = None
+    text_data: str = None
 
     model: str = 'complex'
     dimension: int = 256
@@ -73,13 +79,23 @@ def run(args: Arguments):
     loss_kwargs = None
     if args.loss_fn in {'nssa', 'marginranking'}:
         loss_kwargs = {'margin': args.loss_margin}
+    model = args.model
+    model_kwargs = {'embedding_dim': args.dimension, 'loss': args.loss_fn}
+
+    if any((args.protein_data, args.molecule_data, args.text_data)):
+        model = BioBLP
+        encoders = build_encoders(args.dimension,
+                                  training.entity_to_id,
+                                  args.protein_data,
+                                  args.molecule_data,
+                                  args.text_data)
+        model_kwargs['entity_representations'] = encoders
 
     result = pipeline(training=training,
                       validation=validation,
                       testing=testing,
-                      model=args.model,
-                      model_kwargs={'embedding_dim': args.dimension,
-                                    'loss': args.loss_fn},
+                      model=model,
+                      model_kwargs=model_kwargs,
                       loss_kwargs=loss_kwargs,
                       optimizer=args.optimizer,
                       optimizer_kwargs={'lr': args.learning_rate},
