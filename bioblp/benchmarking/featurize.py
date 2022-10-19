@@ -176,8 +176,6 @@ class KGEMFeaturizer(Featurizer):
         return entity_repr
     
 
-
-
 class LookupEmbFeaturizer(Featurizer):
     def __init__(self, dim=128, **kwargs):
         raise NotImplementedError()
@@ -211,7 +209,7 @@ class RandomNoiseFeaturizer(Featurizer):
         head_repr = self.get_entity_representations(head_entities, lookup=lookup)
         tail_repr = self.get_entity_representations(tail_entities, lookup=lookup)
         
-        logger.info(f"Applying transformation function to retrieve joint encoding for entity pair")
+        logger.info(f"Applying transformation {self.joint_transform_operator} to retrieve joint encoding for entity pair")
         joint_transform_operator = define_joint_encoding_transform_fn(self.joint_transform_operator)
         joint_encodings = self._apply_joint_transform_function(head_repr, tail_repr, transform=joint_transform_operator)
         self.X = joint_encodings.detach().numpy()
@@ -259,13 +257,13 @@ def featurize_entity_pair_dataset(df, entity_encoder, entity_pair_transform: Cal
 
 def main(args):
     joint_transform_operator = args.joint_transform_operator
-    bm_input_dir = Path(args.bm_input_dir)
+    bm_data_path = Path(args.bm_data_path)
     model_or_lookup_path = Path(args.model_or_lookup_path)
     featurizer_type = args.featurizer_type
     random_noise_emb_dim = args.random_noise_emb_dim
-    out_dir = Path(args.features_out_dir).joinpath(f'{featurizer_type}/{joint_transform_operator}')
+    out_dir = Path(args.features_out_dir)
     
-    bm_df = pd.read_csv(bm_input_dir, sep='\t')
+    bm_df = pd.read_csv(bm_data_path, sep='\t')
     featurizer = init_featurizer(featurizer_type, 
                                  joint_transform_operator=joint_transform_operator,
                                  randomnoise_emb_dim=random_noise_emb_dim
@@ -276,16 +274,27 @@ def main(args):
                                             )
     featurizer.save(X, y, out_dir)
 
+    meta = {
+        'bm_data_path': str(bm_data_path),
+        'featurizer_type': featurizer_type,
+        'model_or_lookup_path': str(model_or_lookup_path),
+        'joint_transform_operator': joint_transform_operator,
+        'random_noise_emb_dim': random_noise_emb_dim
+        }
+
+    with open (out_dir.joinpath('metadata.json'), 'w+') as f:
+        json.dump(meta, f)
+
 
 if __name__ == "__main__":
     parser = ArgumentParser(description="Featurize benchmark entity-pairs (E.g. DPI data) for downstream prediction task")
-    parser.add_argument("--bm_input_dir", "-i", type=str,
+    parser.add_argument("--bm_data_path", "-i", type=str,
                         help="Path to pick up benchmark entity-pairwise labeled data")
     parser.add_argument("--features_out_dir", "-o", type=str,
                         help="Path to save featurized data")
     parser.add_argument("--featurizer_type", "-t", type=str,
                        help="Mode of featurization, such as KGEM, random noise embeddings, etc")
-    parser.add_argument("--model_or_lookup_path", "-f", type=str,
+    parser.add_argument("--model_or_lookup_path", "-m", type=str,
                        help="Path to featurizer artifact such as KGE model, or random noise embeddings")
     parser.add_argument("--joint_transform_operator", "-j", type=str,
                         default='concatenate',
