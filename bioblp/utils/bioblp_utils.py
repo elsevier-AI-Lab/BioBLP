@@ -16,8 +16,7 @@ def build_encoders(dim: int,
 
     if protein_data:
         protein_encoder = encoders.PretrainedLookupTableEncoder(
-            file_path=protein_data,
-            dim=dim
+            file_path=protein_data
         )
         encoders_list.append(protein_encoder)
 

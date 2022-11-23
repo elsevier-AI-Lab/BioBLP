@@ -97,17 +97,18 @@ class PretrainedEmbeddingPreprocessor(EntityPropertyPreprocessor):
                         entity_to_id: Mapping[str, int]
                         ) -> Tuple[Tensor, Tensor, Tensor]:
         data_dict = torch.load(file_path)
-        entities = data_dict['proteins']
-        embeddings = data_dict['embeddings']
+        entity_to_row = data_dict['identifiers']
 
         entity_ids = []
-        for e in entities:
-            if e in entity_to_id:
-                entity_ids.append(entity_to_id[e])
+        data = []
+        for entity, row in entity_to_row.items():
+            if entity in entity_to_id:
+                entity_ids.append(entity_to_id[entity])
+                data.append(entity_to_row[entity])
 
         entity_ids = torch.tensor(entity_ids, dtype=torch.long)
-        rows = torch.arange(len(entity_ids))
-        data = embeddings
+        data_idx = torch.arange(len(entity_ids))
+        data = torch.tensor(data, dtype=torch.long)
 
-        return entity_ids, rows, data
+        return entity_ids, data_idx, data
 
