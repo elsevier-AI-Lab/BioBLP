@@ -22,11 +22,13 @@ python -m bioblp.train \
 --valid_triples=data/biokgb/graph/biokg.links-valid.csv \
 --test_triples=data/biokgb/graph/biokg.links-test.csv \
 --protein_data=data/biokgb/properties/protein_prottrans_embeddings.pt \
+--search_eval_batch_size=True \
+--search_train_batch_size=True \
 --dimension=1024 \
 --num_epochs=1 \
 --batch_size=128 \
 --log_wandb=True \
---notes="BioBLP-prot test min batch size"
+--notes="BioBLP-prot search batch sizes"
 
 # Keep files generated during job
 RESULTS_FOLDER=$HOME/$PROJ_FOLDER-$OUT_FOLDER
