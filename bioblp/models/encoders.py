@@ -14,8 +14,9 @@ from ..loaders.preprocessors import (TextEntityPropertyPreprocessor,
 
 class PropertyEncoder(nn.Module):
     """An abstract class for encoders of entities with different properties"""
-    def __init__(self):
+    def __init__(self, file_path: str = None):
         super().__init__()
+        self.file_path = file_path
 
     def preprocess_properties(self,
                               entity_to_id: Mapping[str, int]
@@ -38,7 +39,7 @@ class LookupTableEncoder(PropertyEncoder):
 
 class PretrainedLookupTableEncoder(PropertyEncoder):
     def __init__(self, file_path: str):
-        super().__init__()
+        super().__init__(file_path)
 
         data_dict = torch.load(file_path)
 
@@ -47,7 +48,6 @@ class PretrainedLookupTableEncoder(PropertyEncoder):
 
         self.embeddings = nn.Embedding(num_entities, in_dim)
         self.embeddings.weight.data = data_dict['embeddings']
-        self.file_path = file_path
 
     def preprocess_properties(self,
                               entity_to_id: Mapping[str, int]
@@ -63,7 +63,7 @@ class PretrainedLookupTableEncoder(PropertyEncoder):
 class MolecularFingerprintEncoder(PropertyEncoder):
     """Encoder of molecules described by a fingerprint"""
     def __init__(self, file_path: str, in_features: int, dim: int):
-        super().__init__()
+        super().__init__(file_path)
 
         self.layers = nn.Sequential(nn.Linear(in_features, in_features // 2),
                                     nn.ReLU(),
@@ -90,7 +90,7 @@ class TransformerTextEncoder(PropertyEncoder):
     BASE_MODEL = 'allenai/scibert_scivocab_uncased'
 
     def __init__(self, file_path: str, dim: int):
-        super().__init__()
+        super().__init__(file_path)
         self.encoder = AutoModel.from_pretrained(self.BASE_MODEL)
 
         for parameter in self.encoder.parameters():
@@ -98,7 +98,6 @@ class TransformerTextEncoder(PropertyEncoder):
 
         encoder_hidden_size = self.encoder.config.hidden_size
         self.linear_out = nn.Linear(encoder_hidden_size, dim)
-        self.file_path = file_path
 
     def preprocess_properties(self,
                               entity_to_id: Mapping[str, int]
