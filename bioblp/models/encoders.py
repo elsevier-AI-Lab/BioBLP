@@ -14,9 +14,10 @@ from ..loaders.preprocessors import (TextEntityPropertyPreprocessor,
 
 class PropertyEncoder(nn.Module):
     """An abstract class for encoders of entities with different properties"""
-    def __init__(self, file_path: str = None):
+    def __init__(self, file_path: str = None, dim: int = None):
         super().__init__()
         self.file_path = file_path
+        self.dim = dim
 
     def preprocess_properties(self,
                               entity_to_id: Mapping[str, int]
@@ -30,7 +31,7 @@ class PropertyEncoder(nn.Module):
 class LookupTableEncoder(PropertyEncoder):
     """A lookup table encoder for entities without properties."""
     def __init__(self, num_embeddings: int, dim: int):
-        super().__init__()
+        super().__init__(dim=dim)
         self.embeddings = nn.Embedding(num_embeddings, dim)
 
     def forward(self, indices: Tensor, device: torch.device) -> Tensor:
@@ -38,8 +39,8 @@ class LookupTableEncoder(PropertyEncoder):
 
 
 class PretrainedLookupTableEncoder(PropertyEncoder):
-    def __init__(self, file_path: str):
-        super().__init__(file_path)
+    def __init__(self, file_path: str, dim: int):
+        super().__init__(file_path, dim)
 
         data_dict = torch.load(file_path)
 
@@ -48,6 +49,8 @@ class PretrainedLookupTableEncoder(PropertyEncoder):
 
         self.embeddings = nn.Embedding(num_entities, in_dim)
         self.embeddings.weight.data = data_dict['embeddings']
+        # TODO: dim could be higher than in_dim
+        self.linear = nn.Linear(in_dim, dim)
 
     def preprocess_properties(self,
                               entity_to_id: Mapping[str, int]
@@ -57,13 +60,14 @@ class PretrainedLookupTableEncoder(PropertyEncoder):
 
     def forward(self, indices: Tensor, device: torch.device) -> Tensor:
         embs = self.embeddings(indices.to(device))
+        embs = self.linear(embs)
         return embs
 
 
 class MolecularFingerprintEncoder(PropertyEncoder):
     """Encoder of molecules described by a fingerprint"""
     def __init__(self, file_path: str, in_features: int, dim: int):
-        super().__init__(file_path)
+        super().__init__(file_path, dim)
 
         self.layers = nn.Sequential(nn.Linear(in_features, in_features // 2),
                                     nn.ReLU(),
@@ -90,7 +94,7 @@ class TransformerTextEncoder(PropertyEncoder):
     BASE_MODEL = 'allenai/scibert_scivocab_uncased'
 
     def __init__(self, file_path: str, dim: int):
-        super().__init__(file_path)
+        super().__init__(file_path, dim)
         self.encoder = AutoModel.from_pretrained(self.BASE_MODEL)
 
         for parameter in self.encoder.parameters():
