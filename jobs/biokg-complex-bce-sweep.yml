@@ -6,6 +6,8 @@ metric:
   name: validation.both.realistic.inverse_harmonic_mean_rank
   goal: maximize
 parameters:
+  loss_fn:
+    value: bcewithlogits
   learning_rate:
     distribution: log_uniform_values
     min: 1e-3
@@ -28,7 +30,6 @@ command:
   - '--train_triples=data/biokgb/graph/biokg.links-train.csv'
   - '--valid_triples=data/biokgb/graph/biokg.links-valid.csv'
   - '--test_triples=data/biokgb/graph/biokg.links-test.csv'
-  - '--loss_fn=bcewithlogitsloss'
   - '--log_wandb=True'
   - '--notes="ComplEx sweep"'
   - ${args}

@@ -1,7 +1,7 @@
 import pdb
-from typing import Mapping, Optional, Tuple
+from typing import Mapping, Optional, Tuple, Iterable
 
-from pykeen.nn.emb import RepresentationModule
+from pykeen.nn import Representation
 import torch
 import torch.nn as nn
 from torch import Tensor
@@ -14,10 +14,11 @@ from ..loaders.preprocessors import (TextEntityPropertyPreprocessor,
 
 class PropertyEncoder(nn.Module):
     """An abstract class for encoders of entities with different properties"""
-    def __init__(self):
+    def __init__(self, file_path: str = None):
         super().__init__()
+        self.file_path = file_path
 
-    def preprocess_properties(self, file_path: str,
+    def preprocess_properties(self,
                               entity_to_id: Mapping[str, int]
                               ) -> Tuple[Tensor, Tensor, Tensor]:
         pass
@@ -37,49 +38,42 @@ class LookupTableEncoder(PropertyEncoder):
 
 
 class PretrainedLookupTableEncoder(PropertyEncoder):
-    def __init__(self, file_path: str, dim: int):
-        super().__init__()
+    def __init__(self, file_path: str):
+        super().__init__(file_path)
 
         data_dict = torch.load(file_path)
 
-        # FIXME This might create more protein entries than required
-        # Not a bug, but a bit wasteful
-        num_proteins = len(data_dict['proteins'])
+        num_entities = len(data_dict['identifiers'])
         in_dim = data_dict['embeddings'].shape[-1]
 
-        self.embeddings = nn.Embedding(num_proteins, in_dim)
-        self.linear = nn.Linear(in_dim, dim)
+        self.embeddings = nn.Embedding(num_entities, in_dim)
+        self.embeddings.weight.data = data_dict['embeddings']
 
-    def preprocess_properties(self, file_path: str,
+    def preprocess_properties(self,
                               entity_to_id: Mapping[str, int]
                               ) -> Tuple[Tensor, Tensor, Tensor]:
         preprocessor = PretrainedEmbeddingPreprocessor()
-        entity_ids, rows, data = preprocessor.preprocess_file(file_path,
-                                                              entity_to_id)
-
-        self.embeddings.weight.data = data
-        return entity_ids, rows, rows
+        return preprocessor.preprocess_file(self.file_path, entity_to_id)
 
     def forward(self, indices: Tensor, device: torch.device) -> Tensor:
         embs = self.embeddings(indices.to(device))
-        embs = self.linear(embs)
         return embs
 
 
 class MolecularFingerprintEncoder(PropertyEncoder):
     """Encoder of molecules described by a fingerprint"""
-    def __init__(self, in_features: int, dim: int):
-        super().__init__()
+    def __init__(self, file_path: str, in_features: int, dim: int):
+        super().__init__(file_path)
 
         self.layers = nn.Sequential(nn.Linear(in_features, in_features // 2),
                                     nn.ReLU(),
                                     nn.Linear(in_features // 2, dim))
 
-    def preprocess_properties(self, file_path: str,
+    def preprocess_properties(self,
                               entity_to_id: Mapping[str, int]
                               ) -> Tuple[Tensor, Tensor, Tensor]:
         processor = MolecularFingerprintPreprocessor()
-        data_tuple = processor.preprocess_file(file_path, entity_to_id)
+        data_tuple = processor.preprocess_file(self.file_path, entity_to_id)
 
         entities, data_idx, data = data_tuple
 
@@ -95,8 +89,8 @@ class TransformerTextEncoder(PropertyEncoder):
     the [CLS] symbol through a linear layer."""
     BASE_MODEL = 'allenai/scibert_scivocab_uncased'
 
-    def __init__(self, dim: int):
-        super().__init__()
+    def __init__(self, file_path: str, dim: int):
+        super().__init__(file_path)
         self.encoder = AutoModel.from_pretrained(self.BASE_MODEL)
 
         for parameter in self.encoder.parameters():
@@ -105,12 +99,12 @@ class TransformerTextEncoder(PropertyEncoder):
         encoder_hidden_size = self.encoder.config.hidden_size
         self.linear_out = nn.Linear(encoder_hidden_size, dim)
 
-    def preprocess_properties(self, file_path: str,
+    def preprocess_properties(self,
                               entity_to_id: Mapping[str, int]
                               ) -> Tuple[Tensor, Tensor, Tensor]:
         tokenizer = AutoTokenizer.from_pretrained(self.BASE_MODEL)
         processor = TextEntityPropertyPreprocessor(tokenizer, max_length=32)
-        data_tuple = processor.preprocess_file(file_path, entity_to_id)
+        data_tuple = processor.preprocess_file(self.file_path, entity_to_id)
         entities, data_idx, data = data_tuple
 
         return entities, data_idx, data
@@ -129,13 +123,13 @@ class TransformerTextEncoder(PropertyEncoder):
         return embeddings
 
 
-class PropertyEncoderRepresentation(RepresentationModule):
+class PropertyEncoderRepresentation(Representation):
     """A representation that maps entity IDs to an embedding that is a function
     of entity properties. Supports heterogeneous properties each with a
     potentially different encoder.
     """
     def __init__(self, dim: int, entity_to_id: Mapping[str, int],
-                 file_to_encoder: Mapping[str, PropertyEncoder]):
+                 encoders: Iterable[PropertyEncoder]):
         num_entities = len(entity_to_id)
 
         super().__init__(max_id=num_entities, shape=(dim,))
@@ -145,9 +139,10 @@ class PropertyEncoderRepresentation(RepresentationModule):
         self.entity_data_idx = torch.zeros_like(self.entity_types)
         self.type_id_to_data = dict()
         self.type_id_to_encoder = dict()
-        for type_id, (file_path, encoder) in enumerate(file_to_encoder.items()):
+
+        for type_id, encoder in enumerate(encoders):
             self.type_id_to_encoder[type_id] = encoder
-            data_tuple = encoder.preprocess_properties(file_path, entity_to_id)
+            data_tuple = encoder.preprocess_properties(entity_to_id)
             entities, data_idx, data = data_tuple
 
             self.entity_types[entities] = type_id
@@ -173,10 +168,10 @@ class PropertyEncoderRepresentation(RepresentationModule):
             self.add_module(f'type_{type_id}_encoder', encoder)
 
         embeddings_buffer = torch.zeros([num_entities, dim], dtype=torch.float,
-                                       requires_grad=False)
+                                        requires_grad=False)
         self.register_buffer('embeddings_buffer', embeddings_buffer)
 
-    def forward(self, indices: Optional[torch.LongTensor] = None,
+    def _plain_forward(self, indices: Optional[torch.LongTensor] = None,
                 ) -> torch.Tensor:
         if self.training and indices is not None:
             batch_size = indices.shape[0]
@@ -188,8 +183,7 @@ class PropertyEncoderRepresentation(RepresentationModule):
             indices = indices.cpu()
             entity_types = self.entity_types[indices]
             type_assignments = entity_types.unsqueeze(-1) == self.type_ids
-            types_in_batch = torch.any(type_assignments, dim=0).nonzero(as_tuple=False)
-            types_in_batch = types_in_batch.squeeze(-1).tolist()
+            types_in_batch = torch.unique(entity_types).tolist()
 
             for t in types_in_batch:
                 entity_type_mask = type_assignments[:, t]

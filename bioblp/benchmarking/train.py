@@ -521,6 +521,7 @@ def run(args):
     n_iter = args.n_iter
     inner_n_folds = args.inner_n_folds
     outer_n_folds = args.outer_n_folds
+    candidates = args.candidate_algo_list
 
     exp_output = defaultdict(dict)
     exp_output["config"] = {
@@ -564,13 +565,13 @@ def run(args):
     ############
     # Compare models
     ############
-
-    candidates = [
-        lr_label,
+    
+    #candidates = [
+    #    lr_label,
         # rf_label,
         # MLP_label
 
-    ]
+    #]
 
     scorer = get_scorers()
 
@@ -623,6 +624,9 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--outer_n_folds", type=int, default=3, help="Folds to use in outer CV"
+    )
+    parser.add_argument(
+        "--candidate_algo_list", nargs='+', default='MLP', help="train b/w 'LR', 'RF', 'MLP' "
     )
 
     args = parser.parse_args()

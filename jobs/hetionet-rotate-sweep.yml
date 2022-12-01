@@ -7,15 +7,9 @@ metric:
   goal: maximize
 parameters:
   model:
-    value: transe
-  dimension:
-    value: 512
+    value: rotate
   loss_fn:
-    value: marginranking
-  loss_margin:
-    distribution: uniform
-    min: 0.5
-    max: 10.0
+    value: crossentropy
   learning_rate:
     distribution: log_uniform_values
     min: 1e-3
@@ -35,9 +29,9 @@ command:
   - python
   - "-m"
   - ${program}
-  - '--train_triples=data/biokgb/graph/biokg.links-train.csv'
-  - '--valid_triples=data/biokgb/graph/biokg.links-valid.csv'
-  - '--test_triples=data/biokgb/graph/biokg.links-test.csv'
+  - '--train_triples=data/hetionet/hetionet.train.csv'
+  - '--valid_triples=data/hetionet/hetionet.valid.csv'
+  - '--test_triples=data/hetionet/hetionet.test.csv'
   - '--log_wandb=True'
-  - '--notes=TransE sweep'
+  - '--notes=RotatE sweep'
   - ${args}

@@ -6,16 +6,22 @@ metric:
   name: validation.both.realistic.inverse_harmonic_mean_rank
   goal: maximize
 parameters:
+  model:
+    value: rotate
+  loss_fn:
+    value: bcewithlogits
   learning_rate:
     distribution: log_uniform_values
-    min: 1e-4
-    max: 1e-1
+    min: 1e-3
+    max: 1.0
   regularizer:
     distribution: log_uniform_values
     min: 1e-6
     max: 1e-3
   batch_size:
     values:
+      - 128
+      - 256
       - 512
       - 1024
 command:
@@ -23,10 +29,9 @@ command:
   - python
   - "-m"
   - ${program}
-  - "--train_triples=data/biokgb-small/graph/biokg-small.links-train.csv"
-  - "--valid_triples=data/biokgb-small/graph/biokg-small.links-train.csv"
-  - "--test_triples=data/biokgb-small/graph/biokg-small.links-train.csv"
-  - "--log_wandb=True"
-  - "--dimension=2"
-  - "--num_epochs=50"
+  - '--train_triples=data/hetionet/hetionet.train.csv'
+  - '--valid_triples=data/hetionet/hetionet.valid.csv'
+  - '--test_triples=data/hetionet/hetionet.test.csv'
+  - '--log_wandb=True'
+  - '--notes=RotatE sweep, bcewithlogits'
   - ${args}
