@@ -9,7 +9,8 @@ from transformers import AutoTokenizer, AutoModel
 
 from ..loaders.preprocessors import (TextEntityPropertyPreprocessor,
                                      MolecularFingerprintPreprocessor,
-                                     PretrainedEmbeddingPreprocessor)
+                                     PretrainedEmbeddingPreprocessor,
+                                     MoleculeEmbeddingPreprocessor)
 
 
 class PropertyEncoder(nn.Module):
@@ -85,6 +86,40 @@ class MolecularFingerprintEncoder(PropertyEncoder):
 
     def forward(self, data: Tensor, device: torch.device) -> Tensor:
         return self.layers(data.to(device))
+
+
+class MoleculeEmbeddingEncoder(PropertyEncoder):
+    def __init__(self, file_path: str, dim: int):
+        super().__init__(file_path, dim)
+
+        data_dict = torch.load(file_path)
+        in_dim = next(iter(data_dict.values())).shape[-1]
+
+        self.self_attention = nn.MultiheadAttention(in_dim,
+                                                    num_heads=4,
+                                                    batch_first=True)
+        self.linear_hidden = nn.Linear(in_dim, in_dim)
+        self.linear_out = nn.Linear(in_dim, dim)
+
+    def preprocess_properties(self,
+                              entity_to_id: Mapping[str, int]
+                              ) -> Tuple[Tensor, Tensor, Tensor]:
+        processor = MoleculeEmbeddingPreprocessor()
+        return processor.preprocess_file(self.file_path, entity_to_id)
+
+    def forward(self, data: Tensor, device: torch.device) -> Tensor:
+        # data: (batch_size, length, dim)
+        x = data.to(device)
+
+        attention_mask = (x < -1_000)
+        x[attention_mask] = 0.0
+        attention_mask = attention_mask.any(dim=-1)
+
+        x = self.self_attention(x, x, x, key_padding_mask=attention_mask)[0]
+        x = torch.relu(self.linear_hidden(x[:, 0]))
+        x = self.linear_out(x)
+
+        return x
 
 
 class TransformerTextEncoder(PropertyEncoder):
