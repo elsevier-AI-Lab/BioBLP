@@ -111,7 +111,11 @@ class MoleculeEmbeddingEncoder(PropertyEncoder):
         # data: (batch_size, length, dim)
         x = data.to(device)
 
+        # attention_mask is True for positions that need to be treated as
+        # padding (ignored by self-attention). Padding has values of -10,000
         attention_mask = (x < -1_000)
+        # To avoid any potential issues when actually computing self-attention,
+        # we rewrite values from -10,000 to 0.0
         x[attention_mask] = 0.0
         attention_mask = attention_mask.any(dim=-1)
 
