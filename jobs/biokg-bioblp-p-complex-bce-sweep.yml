@@ -30,6 +30,7 @@ command:
   - '--valid_triples=data/biokgb/graph/biokg.links-valid.csv'
   - '--test_triples=data/biokgb/graph/biokg.links-test.csv'
   - '--search_eval_batch_size=True'
+  - '--protein_data=data/biokgb/properties/protein_prottrans_embeddings.pt'
   - '--log_wandb=True'
   - '--notes="BioBLP-P ComplEx sweep"'
   - ${args}
