@@ -89,6 +89,7 @@ def run(args: Arguments):
                                   args.protein_data,
                                   args.molecule_data,
                                   args.text_data)
+        model_kwargs['interaction_function'] = args.model
         model_kwargs['entity_representations'] = encoders
 
     result = pipeline(training=training,
