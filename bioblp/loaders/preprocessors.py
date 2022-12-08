@@ -3,6 +3,7 @@ from typing import Tuple, Mapping
 from transformers import BertTokenizer
 import torch
 from torch import Tensor
+from torch.nn.utils.rnn import pad_sequence
 from tqdm import tqdm
 import numpy as np
 
@@ -112,3 +113,28 @@ class PretrainedEmbeddingPreprocessor(EntityPropertyPreprocessor):
 
         return entity_ids, data_idx, data
 
+
+class MoleculeEmbeddingPreprocessor(EntityPropertyPreprocessor):
+    def preprocess_file(self, file_path: str,
+                        entity_to_id: Mapping[str, int]
+                        ) -> Tuple[Tensor, Tensor, Tensor]:
+        """Load embeddings for all the molecules we need, putting them
+        in a single tensor that can be used to retrieve embeddings during
+        training. Since molecules have variable length we use padding with
+        a value of -1000 before placing them all inside a single 3D tensor
+        of shape (N, L, D) where N is the number of molecules,
+        L the maximum molecule length, and D the embedding dimension"""
+        data_dict = torch.load(file_path)
+
+        entity_ids = []
+        data = []
+        for molecule, embeddings in data_dict.items():
+            if molecule in entity_to_id:
+                entity_ids.append(entity_to_id[molecule])
+                data.append(embeddings)
+
+        entity_ids = torch.tensor(entity_ids, dtype=torch.long)
+        data = pad_sequence(data, batch_first=True, padding_value=-10_000)
+        data_idx = torch.arange(len(entity_ids))
+
+        return entity_ids, data_idx, data
