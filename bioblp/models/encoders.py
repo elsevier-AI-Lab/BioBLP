@@ -1,5 +1,5 @@
 import pdb
-from typing import Mapping, Optional, Tuple, Iterable
+from typing import Mapping, Optional, Tuple, Iterable, Dict
 
 from pykeen.nn import Representation
 import torch
@@ -15,10 +15,13 @@ from ..loaders.preprocessors import (TextEntityPropertyPreprocessor,
 
 class PropertyEncoder(nn.Module):
     """An abstract class for encoders of entities with different properties"""
-    def __init__(self, file_path: str = None, dim: int = None):
+    def __init__(self, file_path: str = None, dim: int = None,
+                 learning_rate: float = None):
         super().__init__()
+
         self.file_path = file_path
         self.dim = dim
+        self.learning_rate = learning_rate
 
     def preprocess_properties(self,
                               entity_to_id: Mapping[str, int]
@@ -40,8 +43,8 @@ class LookupTableEncoder(PropertyEncoder):
 
 
 class PretrainedLookupTableEncoder(PropertyEncoder):
-    def __init__(self, file_path: str, dim: int):
-        super().__init__(file_path, dim)
+    def __init__(self, file_path: str, dim: int, learning_rate: float):
+        super().__init__(file_path, dim, learning_rate)
 
         data_dict = torch.load(file_path)
 
@@ -67,8 +70,10 @@ class PretrainedLookupTableEncoder(PropertyEncoder):
 
 class MolecularFingerprintEncoder(PropertyEncoder):
     """Encoder of molecules described by a fingerprint"""
-    def __init__(self, file_path: str, in_features: int, dim: int):
-        super().__init__(file_path, dim)
+
+    def __init__(self, file_path: str, in_features: int, dim: int,
+                 learning_rate: float):
+        super().__init__(file_path, dim, learning_rate)
 
         self.layers = nn.Sequential(nn.Linear(in_features, in_features // 2),
                                     nn.ReLU(),
@@ -89,8 +94,8 @@ class MolecularFingerprintEncoder(PropertyEncoder):
 
 
 class MoleculeEmbeddingEncoder(PropertyEncoder):
-    def __init__(self, file_path: str, dim: int):
-        super().__init__(file_path, dim)
+    def __init__(self, file_path: str, dim: int, learning_rate: float):
+        super().__init__(file_path, dim, learning_rate)
 
         data_dict = torch.load(file_path)
         in_dim = next(iter(data_dict.values())).shape[-1]
@@ -132,8 +137,8 @@ class TransformerTextEncoder(PropertyEncoder):
     the [CLS] symbol through a linear layer."""
     BASE_MODEL = 'allenai/scibert_scivocab_uncased'
 
-    def __init__(self, file_path: str, dim: int):
-        super().__init__(file_path, dim)
+    def __init__(self, file_path: str, dim: int, learning_rate: float):
+        super().__init__(file_path, dim, learning_rate)
         self.encoder = AutoModel.from_pretrained(self.BASE_MODEL)
 
         for parameter in self.encoder.parameters():

@@ -17,8 +17,11 @@ class Arguments(Tap):
     test_triples: str
 
     protein_data: str = None
+    protein_learning_rate: float = 1e-2
     molecule_data: str = None
+    molecule_learning_rate: float = 1e-3
     text_data: str = None
+    text_learning_rate: float = 1e-3
 
     model: str = 'complex'
     dimension: int = 256
@@ -87,10 +90,14 @@ def run(args: Arguments):
         encoders = build_encoders(args.dimension,
                                   training.entity_to_id,
                                   args.protein_data,
+                                  args.protein_learning_rate,
                                   args.molecule_data,
-                                  args.text_data)
+                                  args.molecule_learning_rate,
+                                  args.text_data,
+                                  args.text_learning_rate)
         model_kwargs['interaction_function'] = args.model
         model_kwargs['entity_representations'] = encoders
+        model_kwargs['default_learning_rate'] = args.learning_rate
 
     result = pipeline(training=training,
                       validation=validation,
