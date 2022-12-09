@@ -27,6 +27,7 @@ from sklearn.metrics import accuracy_score
 from sklearn.metrics import precision_recall_curve
 from sklearn.metrics import roc_curve
 from sklearn.metrics import auc
+from sklearn.preprocessing import LabelEncoder
 
 from collections import defaultdict
 
@@ -39,6 +40,7 @@ from skorch import NeuralNetClassifier
 from typing import Union
 
 from bioblp.data import COL_EDGE, COL_SOURCE, COL_TARGET
+from bioblp.models.encoders import PretrainedLookupTableEncoder
 from bioblp.logging import get_logger
 
 
@@ -151,91 +153,6 @@ class CVObjective(abc.ABC):
         return tuple(score_to_optimize)
 
 
-class LRObjective(CVObjective):
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-
-    def get_default_params(self):
-        default_params = {
-            "C": 1.0,
-            "random_state": SEED,
-            "max_iter": 1000,
-            "solver": "lbfgs",
-            "n_jobs": -1,
-        }
-        return default_params
-
-    def _get_params_for(self, model):
-        return model.get_params()
-
-    def model_init(self, **kwargs):
-        return LogisticRegression(**kwargs)
-
-    def _clf_objective(self, trial):
-        random_state = SEED
-        n_jobs = -1
-
-        C = trial.suggest_float("C", 1e-5, 1e3, log=True)
-        solver = trial.suggest_categorical("solver", ["lbfgs"])
-        max_iter = trial.suggest_categorical("max_iter", [1000])
-
-        clf_obj = self.model_init(
-            random_state=random_state, n_jobs=n_jobs, C=C, solver=solver, max_iter=max_iter
-        )
-        return clf_obj
-
-
-class RFObjective(CVObjective):
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-
-    def get_default_params(self):
-        default_params = {
-            "n_estimators": 300,
-            "criterion": "gini",
-            "min_samples_split": 2,
-            "min_samples_leaf": 1,
-            "max_features": "sqrt",
-            "random_state": SEED,
-            "n_jobs": -1,
-        }
-        return default_params
-
-    def _get_params_for(self, model):
-        return model.get_params()
-
-    def model_init(self, **kwargs):
-        return RandomForestClassifier(**kwargs)
-
-    def _clf_objective(self, trial):
-        random_state = SEED
-        n_jobs = -1
-
-        criterion = trial.suggest_categorical(
-            "criterion", ["gini", "entropy"])
-        n_estimators = trial.suggest_int(
-            "n_estimators", low=100, high=300, step=50)
-        min_samples_leaf = trial.suggest_int(
-            "min_samples_leaf", low=1, high=10, log=True
-        )
-        min_samples_split = trial.suggest_int(
-            "min_samples_split", low=2, high=100, log=True
-        )
-        max_depth = trial.suggest_categorical(
-            "max_depth", [5, 8, 15, 25, 30, None])
-
-        clf_obj = self.model_init(
-            n_estimators=n_estimators,
-            min_samples_leaf=min_samples_leaf,
-            min_samples_split=min_samples_split,
-            max_depth=max_depth,
-            criterion=criterion,
-            random_state=random_state,
-            n_jobs=n_jobs,
-        )
-        return clf_obj
-
-
 class MLP(nn.Module):
     def __init__(self, input_dims=256, hidden_dims=[256, 256], dropout=0.3, output_dims=2):
         super().__init__()
@@ -260,6 +177,7 @@ class MLP(nn.Module):
         self.layers = nn.Sequential(*layers)
 
     def forward(self, X, **kwargs):
+        print(X)
         return self.layers(X)
 
 
@@ -308,17 +226,11 @@ class MLPObjective(CVObjective):
 
 def create_cv_objective(name, X_train, y_train, scoring, cv,
                         refit_params=["AUCPR", "AUCROC"], run_id: Union[str, None] = None):
-    if name == "LR":
-        return LRObjective(X_train=X_train, y_train=y_train, scoring=scoring, cv=cv,
-                           refit_params=refit_params, run_id=run_id)
-    elif name == "RF":
+    if name == "MLP":
 
-        return RFObjective(X_train=X_train, y_train=y_train, scoring=scoring, cv=cv,
-                           refit_params=refit_params, run_id=run_id)
-    elif name == "MLP":
-
-        return MLPObjective(X_train=X_train, y_train=y_train, scoring=scoring, cv=cv, 
-                            refit_params=refit_params, epochs=200, run_id=run_id)
+        return MLPObjective(X_train=X_train,
+                            y_train=y_train,
+                            scoring=scoring, cv=cv, refit_params=refit_params, epochs=200, run_id=run_id)
 
 
 def transform_model_inputs(X, y, model_name: str):
@@ -333,6 +245,7 @@ def transform_model_inputs(X, y, model_name: str):
 def run_nested_cv(candidates: list,
                   X,
                   y,
+                  entity_to_id,
                   scoring: dict,
                   outer_n_folds: int = 5,
                   inner_n_folds: int = 2,
@@ -343,7 +256,8 @@ def run_nested_cv(candidates: list,
                   refit_params: list = ["AUCPR", "AUCROC"],
                   verbose: int = 14,
                   outdir: Path = None,
-                  timestamp: str = None
+                  timestamp: str = None,
+                  log_wandb: bool = False
                   ) -> dict:
     """Nested cross validation routine.
     Inner cv loop performs hp optimization on all folds and surfaces
@@ -355,6 +269,8 @@ def run_nested_cv(candidates: list,
         predictor
     y : np.ndarray
         labels
+    entity_to_id: dict
+        mapping between entity label to int
     scoring : dict
         dict containing sklearn scorers
     outer_n_folds : int, optional
@@ -418,20 +334,25 @@ def run_nested_cv(candidates: list,
                 refit_params=refit_params,
                 run_id=study_name
             )
-
             # set calbacks
-            wandb_kwargs = {"project": "bioblp-dpi",
-                            "entity": "discoverylab",
-                            "tags": [study_name, study_prefix, name]}
-
-            wandb_callback = WeightsAndBiasesCallback(
-                metric_name=refit_params, wandb_kwargs=wandb_kwargs, as_multirun=True)
 
             file_tracker_callback = FileResultTracker()
 
+            study_callbacks = [file_tracker_callback]
+
+            if log_wandb:
+                wandb_kwargs = {"project": "bioblp-dpi",
+                                "entity": "discoverylab",
+                                "tags": [study_name, study_prefix, name, "discard"]}
+
+                wandb_callback = WeightsAndBiasesCallback(
+                    metric_name=refit_params, wandb_kwargs=wandb_kwargs, as_multirun=True)
+
+                study_callbacks.append(wandb_callback)
+
             # perform optimisation
             study.optimize(objective, n_trials=inner_n_iter,
-                           callbacks=[wandb_callback, file_tracker_callback])
+                           callbacks=study_callbacks)
 
             if timestamp is None:
                 timestamp = int(time())
@@ -445,7 +366,8 @@ def run_nested_cv(candidates: list,
                 trials_file, mode='a', header=not os.path.exists(trials_file), index=False)
 
             # need to finish wandb run between iterations
-            wandb.finish()
+            if log_wandb:
+                wandb.finish()
 
             #
             # Refit with best params and score
@@ -460,9 +382,10 @@ def run_nested_cv(candidates: list,
             logger.info(
                 f"Refitting model {name} with best params: {trial_with_highest_AUCPR.params}...")
 
-            wandb_kwargs["tags"].append("best")
-            wandb.init(
-                **wandb_kwargs, config=trial_with_highest_AUCPR.params)
+            if log_wandb:
+                wandb_kwargs["tags"].append("best")
+                wandb.init(
+                    **wandb_kwargs, config=trial_with_highest_AUCPR.params)
 
             best_params_i = trial_with_highest_AUCPR.params
             model = objective.model_init(**best_params_i)
@@ -484,8 +407,9 @@ def run_nested_cv(candidates: list,
                 scores_i[f"train_{param}"] = scorer(
                     model, X_t[train_idx, :], y_t[train_idx])
 
-            wandb.log(scores_i)
-            wandb.finish()
+            if log_wandb:
+                wandb.log(scores_i)
+                wandb.finish()
 
             # accumulate scores,
             for k_i, v_i in scores_i.items():
@@ -504,16 +428,37 @@ def run_nested_cv(candidates: list,
     return outer_scores
 
 
+def preprocess_dataset(df) -> (np.array, np.array, dict):
+
+    entities = np.concatenate((df["src"].values, df["tgt"].values))
+    le = LabelEncoder().fit(entities)
+
+    df["src_e"] = le.transform(df["src"])
+    df["tgt_e"] = le.transform(df["tgt"])
+
+    X = df[["src_e", "tgt_e"]].values
+    y = df["label"].values
+
+    unique_entities = list(le.classes_)
+    ids = le.transform(unique_entities)
+
+    entity2id = {k: v for k, v in zip(unique_entities, ids)}
+
+    return X, y, entity2id
+
+
 def run(args):
     """Perform train run"""
 
     # reproducibility
     # SEED is set as global
+    print(args)
     shuffle = True
     refit_params = ["AUCPR", "AUCROC"]
 
     out_dir = Path(args.outdir)
     data_dir = Path(args.data_dir)
+    log_wandb = args.log_wandb
 
     n_proc = args.n_proc
     n_iter = args.n_iter
@@ -542,8 +487,13 @@ def run(args):
     ############
     logger.info("Loading training data...")
 
-    X_train = np.load(data_dir.joinpath("X.npy"))
-    y_train = np.load(data_dir.joinpath("y.npy"))
+    # X_train = np.load(data_dir.joinpath("X.npy"))
+    # y_train = np.load(data_dir.joinpath("y.npy"))
+
+    df = pd.read_csv(data_dir, sep="\t", index_col=0)
+    X, y, entity2id = preprocess_dataset(df)
+
+    print(entity2id)
 
     logger.info(
         "Resulting shapes X_train: {}, y_train: {}".format(
@@ -556,20 +506,17 @@ def run(args):
     # Setup classifiers & pipelines
     ############
 
-    lr_label = "LR"
-    rf_label = "RF"
     MLP_label = "MLP"
 
     ############
     # Compare models
     ############
-    
-    #candidates = [
-    #    lr_label,
-        # rf_label,
-        # MLP_label
 
-    #]
+    candidates = [
+        #    lr_label,
+        # rf_label,
+        MLP_label
+    ]
 
     scorer = get_scorers()
 
@@ -577,6 +524,7 @@ def run(args):
         candidates=candidates,
         X=X_train,
         y=y_train,
+        entity_to_id=entity2id,
         scoring=scorer,
         inner_n_folds=inner_n_folds,
         inner_n_iter=n_iter,
@@ -586,7 +534,8 @@ def run(args):
         refit_params=refit_params,
         random_state=SEED,
         outdir=out_dir,
-        timestamp=run_timestamp
+        timestamp=run_timestamp,
+        log_wandb=log_wandb
     )
 
     for algo, scores in nested_cv_scores.items():
@@ -625,6 +574,9 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--candidate_algo_list", nargs='+', default='MLP', help="train b/w 'LR', 'RF', 'MLP' "
+    )
+    parser.add_argument(
+        "--log_wandb", action='store_true', default=False
     )
 
     args = parser.parse_args()

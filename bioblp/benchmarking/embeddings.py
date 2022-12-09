@@ -2,6 +2,9 @@ import torch
 import json
 import abc
 import pandas as pd
+import numpy as np
+
+from argparse import ArgumentParser
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -57,10 +60,67 @@ class LookupEmbedding():
                 json.dump(self.metadata, f)
 
 
-def create_noise_embeddings(entities, random_seed: int = 42, dim=128, emb_range=(-1, 1),
+def save_as_pretrained_lookup_embedding(identifiers: list, tensors: torch.tensor, metadata: dict,
+                                        outdir: Union[str, Path], outname: str):
+    outdir = Path(outdir)
+    outdir.mkdir(parents=True, exist_ok=True)
+
+    outfile = outdir.joinpath(outname)
+
+    meta = {}
+
+    if metadata is not None or len(metadata) > 0:
+        meta.update(metadata)
+
+    data_dict = {
+        "identifiers": identifiers,
+        "embeddings": tensors,
+        "metadata": meta
+    }
+
+    torch.save(data_dict, outfile)
+
+
+def create_noise_lookup_emb(entities, random_seed: int = 42, dim: int = 128, emb_range=(-1, 1),
+                            outdir=None, outname=None) -> dict:
+
+    identifiers = sorted(list(set(entities)))
+    # entity_to_id = {k: idx for idx, k in enumerate(sorted_unique_entities)}
+
+    emb_shape = (len(identifiers), dim)
+
+    r1 = emb_range[0]
+    r2 = emb_range[1]
+
+    g = torch.Generator()
+    g.manual_seed(random_seed)
+
+    embeddings = (r1 - r2) * torch.rand(emb_shape, generator=g) + r2
+
+    metadata = {
+        "random_seed": random_seed,
+        "dim": dim,
+        "emb_range": emb_range
+    }
+
+    # data_dict = {
+    #     "identifiers" = identifiers,
+    #     "embeddings" = embeddings,
+    #     "metadata" = metadata
+    # }
+
+    if outdir is not None:
+        assert outname is not None, "need outout name"
+
+        save_as_pretrained_lookup_embedding(
+            identifiers, embeddings, metadata, outdir, outname)
+
+    return identifiers, embeddings, metadata
+
+
+def create_noise_embeddings(entities, random_seed: int = 42, dim: int = 128, emb_range=(-1, 1),
                             outdir=None, outname=None) -> LookupEmbedding:
-    if not dim:
-        dim = 128
+
     entity_set = set(entities)
     entity_to_id = {k: idx for idx, k in enumerate(sorted(list(entity_set)))}
 
@@ -87,9 +147,9 @@ def create_noise_embeddings(entities, random_seed: int = 42, dim=128, emb_range=
     if outdir is not None:
         assert outname is not None, "need outout name"
 
-        outdir = Path(outdir)
+        # outdir = Path(outdir)
 
-        lookup.save(outdir, outname)
+        # lookup.save(outdir, outname)
 
     return lookup
 
@@ -145,6 +205,27 @@ def create_moltrans_lookup_embedding(data_dir, outdir=None, outname=None) -> Loo
 
 
 def main(args):
+    entities = Path(args.entities)
+    outdir = Path(args.outdir)
+    # name = args.name
+
+    #
+    # Load entities
+    #
+
+    df = pd.read_csv(entities, sep="\t", index_col=0)
+
+    entities = np.concatenate((df["src"].values, df["tgt"].values))
+
+    #
+    # Noise
+    #
+
+    _, _, _ = create_noise_lookup_emb(entities=entities,
+                                      outdir=outdir.joinpath(
+                                          "noise_embeddings"),
+                                      outname="noise_emb.pt")
+
     pass
 
 
@@ -152,11 +233,11 @@ if __name__ == "__main__":
     #
     # WIP
     #
-    parser = ArgumentParser(description="Run model training procedure")
-    parser.add_argument("--data_dir", type=str,
-                        help="Path to pick up data")
+    parser = ArgumentParser(
+        description="Run lookup table generation procedure")
+    parser.add_argument("--entities", type=str,
+                        help="Path to pick up txt file of entities")
     parser.add_argument("--outdir", type=str, help="Path to write output")
-    parser.add_argument("--name", type=str, help="name of embeddings")
 
     args = parser.parse_args()
     main(args)
