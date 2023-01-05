@@ -130,14 +130,11 @@ class TransformerTextEncoder(PropertyEncoder):
     """An encoder of entities with textual descriptions that uses BERT.
     Produces an embedding of an entity by passing the representation of
     the [CLS] symbol through a linear layer."""
-    BASE_MODEL = 'allenai/scibert_scivocab_uncased'
+    BASE_MODEL = 'dmis-lab/biobert-base-cased-v1.2'
 
     def __init__(self, file_path: str, dim: int):
         super().__init__(file_path, dim)
         self.encoder = AutoModel.from_pretrained(self.BASE_MODEL)
-
-        for parameter in self.encoder.parameters():
-            parameter.requires_grad = False
 
         encoder_hidden_size = self.encoder.config.hidden_size
         self.linear_out = nn.Linear(encoder_hidden_size, dim)
@@ -146,7 +143,7 @@ class TransformerTextEncoder(PropertyEncoder):
                               entity_to_id: Mapping[str, int]
                               ) -> Tuple[Tensor, Tensor, Tensor]:
         tokenizer = AutoTokenizer.from_pretrained(self.BASE_MODEL)
-        processor = TextEntityPropertyPreprocessor(tokenizer, max_length=32)
+        processor = TextEntityPropertyPreprocessor(tokenizer, max_length=64)
         data_tuple = processor.preprocess_file(self.file_path, entity_to_id)
         entities, data_idx, data = data_tuple
 
