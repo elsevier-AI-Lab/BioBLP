@@ -4,6 +4,7 @@ from pykeen.pipeline import pipeline
 from pykeen.training import TrainingCallback
 from pykeen.triples import TriplesFactory
 from tap import Tap
+from transformers import get_linear_schedule_with_warmup
 import wandb
 
 from bioblp.logging import get_logger
@@ -26,6 +27,7 @@ class Arguments(Tap):
     loss_margin: float = 1.0
     optimizer: str = 'adagrad'
     learning_rate: float = 1e-2
+    warmup_fraction: float = None
     regularizer: float = 1e-6
     num_epochs: int = 100
     batch_size: int = 1024
@@ -40,14 +42,35 @@ class Arguments(Tap):
     notes: str = None
 
 
-class WBIDCallback(TrainingCallback):
+class BioBLPCallback(TrainingCallback):
     """A callback to get the wandb ID of the run before it gets closed.
     We use it to get a file name for the stored model."""
     id = None
+    scheduler = None
+
+    def __init__(self, num_training_steps, warmup_fraction):
+        super().__init__()
+        self.use_scheduler = warmup_fraction is not None
+        if self.use_scheduler:
+            self.num_training_steps = num_training_steps
+            self.num_warmup_steps = int(self.num_training_steps * warmup_fraction)
 
     def post_epoch(self, *args, **kwargs):
-        if wandb.run is not None and WBIDCallback.id is None:
-            WBIDCallback.id = wandb.run.id
+        if wandb.run is not None and BioBLPCallback.id is None:
+            BioBLPCallback.id = wandb.run.id
+
+    def pre_step(self, **kwargs):
+        if not self.use_scheduler:
+            return
+
+        if self.scheduler is None:
+            self.scheduler = get_linear_schedule_with_warmup(
+                self.optimizer,
+                self.num_warmup_steps,
+                self.num_training_steps
+            )
+        else:
+            self.scheduler.step()
 
 
 def run(args: Arguments):
@@ -92,6 +115,14 @@ def run(args: Arguments):
         model_kwargs['interaction_function'] = args.model
         model_kwargs['entity_representations'] = encoders
 
+    if args.warmup_fraction:
+        if args.batch_size is None:
+            raise ValueError('Batch size is needed to apply learning rate'
+                             ' warmup.')
+        num_steps = (training.num_triples // args.batch_size) * args.num_epochs
+    else:
+        num_steps = None
+
     result = pipeline(training=training,
                       validation=validation,
                       testing=testing,
@@ -104,7 +135,11 @@ def run(args: Arguments):
                       regularizer_kwargs={'weight': args.regularizer},
                       training_kwargs={'num_epochs': args.num_epochs,
                                        'batch_size': args.batch_size,
-                                       'callbacks': WBIDCallback},
+                                       'callbacks': BioBLPCallback,
+                                       'callback_kwargs': {
+                                           'num_training_steps': num_steps,
+                                           'warmup_fraction': args.warmup_fraction
+                                       }},
                       negative_sampler='basic',
                       negative_sampler_kwargs={
                           'num_negs_per_pos': args.num_negatives
@@ -129,7 +164,7 @@ def run(args: Arguments):
                       }
                       )
 
-    result.save_to_directory(osp.join('models', WBIDCallback.id))
+    result.save_to_directory(osp.join('models', BioBLPCallback.id))
 
 
 if __name__ == '__main__':
