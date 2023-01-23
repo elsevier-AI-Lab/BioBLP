@@ -10,6 +10,7 @@ import wandb
 from bioblp.logging import get_logger
 from bioblp.models import BioBLP
 from bioblp.utils.bioblp_utils import build_encoders
+from bioblp.utils.training import InBatchNegativesTraining
 
 
 class Arguments(Tap):
@@ -33,6 +34,7 @@ class Arguments(Tap):
     batch_size: int = 1024
     eval_batch_size: int = 16
     num_negatives: int = 512
+    in_batch_negatives: bool = False
     add_inverses: bool = False
     early_stopper: str = 'both.realistic.inverse_harmonic_mean_rank'
 
@@ -123,6 +125,8 @@ def run(args: Arguments):
     else:
         num_steps = None
 
+    training_loop = InBatchNegativesTraining if args.in_batch_negatives else None
+
     result = pipeline(training=training,
                       validation=validation,
                       testing=testing,
@@ -140,6 +144,7 @@ def run(args: Arguments):
                                            'num_training_steps': num_steps,
                                            'warmup_fraction': args.warmup_fraction
                                        }},
+                      training_loop=training_loop,
                       negative_sampler='basic',
                       negative_sampler_kwargs={
                           'num_negs_per_pos': args.num_negatives
