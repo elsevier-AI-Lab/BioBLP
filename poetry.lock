@@ -181,6 +181,17 @@ typing-inspect = ">=0.4.0"
 dev = ["flake8", "hypothesis", "ipython", "mypy (>=0.710)", "portray", "pytest (>=6.2.3)", "simplejson", "types-dataclasses"]
 
 [[package]]
+name = "dill"
+version = "0.3.6"
+description = "serialize all of python"
+category = "main"
+optional = false
+python-versions = ">=3.7"
+
+[package.extras]
+graph = ["objgraph (>=1.7.2)"]
+
+[[package]]
 name = "docdata"
 version = "0.0.3"
 description = "Add structured information to the end of your python docstrings."
@@ -842,7 +853,7 @@ testing = ["func-timeout", "jaraco.itertools", "pytest (>=6)", "pytest-black (>=
 [metadata]
 lock-version = "1.1"
 python-versions = "^3.8,<3.11"
-content-hash = "116a47d39a8ae15319a1cba3d5beb55f74ec7b37a3fce1bc0766c5e01b502cde"
+content-hash = "286a2751d023ab91791c5ada1746f750fad992967202f62a2110b389a69e0bb8"
 
 [metadata.files]
 alembic = [
@@ -899,6 +910,10 @@ colorlog = [
 dataclasses-json = [
     {file = "dataclasses-json-0.5.7.tar.gz", hash = "sha256:c2c11bc8214fbf709ffc369d11446ff6945254a7f09128154a7620613d8fda90"},
     {file = "dataclasses_json-0.5.7-py3-none-any.whl", hash = "sha256:bc285b5f892094c3a53d558858a88553dd6a61a11ab1a8128a0e554385dcc5dd"},
+]
+dill = [
+    {file = "dill-0.3.6-py3-none-any.whl", hash = "sha256:a07ffd2351b8c678dfc4a856a3005f8067aea51d6ba6c700796a4d9e280f39f0"},
+    {file = "dill-0.3.6.tar.gz", hash = "sha256:e5db55f3687856d8fbdab002ed78544e1c4559a130302693d839dfe8f93f2373"},
 ]
 docdata = [
     {file = "docdata-0.0.3-py3-none-any.whl", hash = "sha256:70560b83366a9a8232f884f319b8ba091ca2a1bb190a17542e27b77f8b49f3d1"},
