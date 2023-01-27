@@ -2,7 +2,8 @@ from argparse import ArgumentParser
 from collections.abc import Callable
 import pandas as pd 
 from pathlib import Path
-from pykeen.sampling.basic_negative_sampler import BasicNegativeSampler
+from pykeen.sampling import BasicNegativeSampler
+from pykeen.sampling import PseudoTypedNegativeSampler
 from pykeen.triples import TriplesFactory
 from typing import Union
 import torch
@@ -54,7 +55,7 @@ def generate_negative_triples(pos_triples: TriplesFactory,
                              filtered=True,
                              num_negs_per_pos = 1):
         
-    neg_sampler = BasicNegativeSampler(mapped_triples=pos_triples.mapped_triples, 
+    neg_sampler = PseudoTypedNegativeSampler(mapped_triples=pos_triples.mapped_triples, 
                                        filtered=filtered,
                                       num_negs_per_pos=num_negs_per_pos)
     pos_batch = pos_triples.mapped_triples

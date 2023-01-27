@@ -1,0 +1,41 @@
+
+data_root = "/home/jovyan/workbench-shared-folder/bioblp/"
+n_iter = 2
+inner_n_folds = 3
+outer_n_folds = 3
+shuffle = true
+refit_params = ["AUCPR", "AUCROC"]
+
+# locations need to contain X and y
+[features]
+noise = "data/benchmarks/features/random-noise-lookup-embeddings/"
+# complex = "data/benchmarks/features/complex/"
+# transe = "data/benchmarks/features/transe/"
+# rotate = "data/benchmarks/features/rotate/"
+structure = "data/benchmarks/features/structure/"
+
+[models]
+
+[models.noise_lr]
+feature = "noise"
+model = "LR"
+
+[models.noise_rf]
+feature = "noise"
+model = "RF"
+
+[models.noise_mlp]
+feature = "noise"
+model = "MLP"
+
+[models.structure_lr]
+feature = "structure"
+model = "LR"
+
+[models.structure_rf]
+feature = "structure"
+model = "RF"
+
+[models.structure_mlp]
+feature = "structure"
+model = "MLP"
