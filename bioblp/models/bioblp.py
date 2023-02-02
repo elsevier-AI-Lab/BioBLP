@@ -1,29 +1,24 @@
 from typing import Optional
 
-from pykeen.models import ERModel
+from pykeen.models import RotatE
 from pykeen.typing import InductiveMode
 import torch
 
 from bioblp.models.encoders import PropertyEncoderRepresentation
 
 
-class BioBLP(ERModel):
+# TODO: Generalize to other models
+class BioBLP(RotatE):
     def __init__(self, *,
-                 interaction_function: str,
                  entity_representations: PropertyEncoderRepresentation,
-                 embedding_dim,
-                 regularizer,
                  **kwargs):
-        interaction_kwargs = dict()
-        if interaction_function == 'transe':
-            interaction_kwargs['p'] = 1
+        super().__init__(**kwargs)
 
-        super().__init__(interaction=interaction_function,
-                         entity_representations=entity_representations,
-                         relation_representations_kwargs={
-                             'shape': entity_representations.shape},
-                         interaction_kwargs=interaction_kwargs,
-                         **kwargs)
+        self.entity_embedding_lut = self.entity_representations[0]._embeddings
+        self.entity_embedding_lut: torch.nn.Embedding
+
+        entity_representations.wrap_lookup_table(self.entity_embedding_lut)
+        self.property_encoder = entity_representations
 
     def score_hrt_and_negatives(self,
                                 hrt_batch: torch.LongTensor,

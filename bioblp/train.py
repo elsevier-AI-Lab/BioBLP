@@ -109,12 +109,14 @@ def run(args: Arguments):
 
     if any((args.protein_data, args.molecule_data, args.text_data)):
         model = BioBLP
-        encoders = build_encoders(args.dimension,
+        dimension = args.dimension
+        if args.model in ('complex', 'rotate'):
+            dimension *= 2
+        encoders = build_encoders(dimension,
                                   training.entity_to_id,
                                   args.protein_data,
                                   args.molecule_data,
                                   args.text_data)
-        model_kwargs['interaction_function'] = args.model
         model_kwargs['entity_representations'] = encoders
 
     if args.warmup_fraction:
