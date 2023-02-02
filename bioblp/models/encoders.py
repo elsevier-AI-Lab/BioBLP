@@ -214,7 +214,6 @@ class PropertyEncoderRepresentation(nn.Module):
                         self: 'PropertyEncoderRepresentation') -> Optional[torch.Tensor]:
         if self.training:
             indices = indices[0]
-            batch_size = indices.shape[0]
             device = indices.device
 
             # Sadly we have to move indices back to cpu to get property data

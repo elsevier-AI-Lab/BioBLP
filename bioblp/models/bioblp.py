@@ -14,10 +14,10 @@ class BioBLP(RotatE):
                  **kwargs):
         super().__init__(**kwargs)
 
-        self.entity_embedding_lut = self.entity_representations[0]._embeddings
-        self.entity_embedding_lut: torch.nn.Embedding
+        entity_embedding_lut = self.entity_representations[0]._embeddings
+        entity_embedding_lut: torch.nn.Embedding
 
-        entity_representations.wrap_lookup_table(self.entity_embedding_lut)
+        entity_representations.wrap_lookup_table(entity_embedding_lut)
         self.property_encoder = entity_representations
 
     def score_hrt_and_negatives(self,
