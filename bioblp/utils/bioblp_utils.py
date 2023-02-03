@@ -38,6 +38,7 @@ def build_encoders(dim: int,
         encoders_list.append(text_encoder)
 
     entity_encoders = encoders.PropertyEncoderRepresentation(
+        dim=dim,
         entity_to_id=entity_to_id,
         encoders=encoders_list
     )

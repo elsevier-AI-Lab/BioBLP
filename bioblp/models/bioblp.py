@@ -1,6 +1,7 @@
 from typing import Optional
 
 from pykeen.models import RotatE
+from pykeen.nn.representation import Embedding as PyKEmbedding
 from pykeen.typing import InductiveMode
 import torch
 
@@ -14,8 +15,8 @@ class BioBLP(RotatE):
                  **kwargs):
         super().__init__(**kwargs)
 
-        entity_embedding_lut = self.entity_representations[0]._embeddings
-        entity_embedding_lut: torch.nn.Embedding
+        entity_embedding_lut = self.entity_representations[0]
+        entity_embedding_lut: PyKEmbedding
 
         entity_representations.wrap_lookup_table(entity_embedding_lut)
         self.property_encoder = entity_representations
