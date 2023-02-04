@@ -35,7 +35,7 @@ python -m bioblp.train \
         --in_batch_negatives=False \
         --search_eval_batch_size=True \
         --log_wandb=True \
-        --notes="Testing BioBLP-D with no descriptions"
+        --notes="BioBLP-D RotatE, no descriptions, no add_module"
 
 # Keep files generated during job
 RESULTS_FOLDER=$HOME/$PROJ_FOLDER-$OUT_FOLDER
