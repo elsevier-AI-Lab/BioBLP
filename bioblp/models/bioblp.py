@@ -15,6 +15,8 @@ class BioBLP(RotatE):
                  entity_representations: PropertyEncoderRepresentation,
                  from_checkpoint: str = None,
                  **kwargs):
+        self.from_checkpoint = from_checkpoint
+
         super().__init__(**kwargs)
 
         entity_embedding_lut = self.entity_representations[0]
@@ -23,8 +25,10 @@ class BioBLP(RotatE):
         entity_representations.wrap_lookup_table(entity_embedding_lut)
         self.property_encoder = entity_representations
 
-        if from_checkpoint:
-            checkpoint = torch.load(osp.join(from_checkpoint,
+    def reset_parameters_(self):
+        super().reset_parameters_()
+        if self.from_checkpoint:
+            checkpoint = torch.load(osp.join(self.from_checkpoint,
                                              'trained_model.pkl'),
                                     map_location='cpu')
             self.load_state_dict(checkpoint.state_dict(), strict=False)
