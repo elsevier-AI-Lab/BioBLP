@@ -38,6 +38,7 @@ class Arguments(Tap):
     in_batch_negatives: bool = False
     add_inverses: bool = False
     early_stopper: str = 'both.realistic.inverse_harmonic_mean_rank'
+    from_checkpoint: str = None
 
     search_train_batch_size: bool = False
     search_eval_batch_size: bool = False
@@ -86,9 +87,19 @@ def run(args: Arguments):
     logger = get_logger()
     logger.info('Loading triples...')
 
+    entity_to_id = relation_to_id = None
+    if args.from_checkpoint:
+        checkpoint_triples = TriplesFactory.from_path_binary(
+            osp.join(args.from_checkpoint, 'training_triples')
+        )
+        entity_to_id = checkpoint_triples.entity_to_id
+        relation_to_id = checkpoint_triples.relation_to_id
+
     training = TriplesFactory.from_path(
         args.train_triples,
-        create_inverse_triples=args.add_inverses
+        create_inverse_triples=args.add_inverses,
+        entity_to_id=entity_to_id,
+        relation_to_id=relation_to_id
     )
     validation = TriplesFactory.from_path(args.valid_triples,
                                           entity_to_id=training.entity_to_id,
@@ -119,6 +130,9 @@ def run(args: Arguments):
                                   args.molecule_data,
                                   args.text_data)
         model_kwargs['entity_representations'] = encoders
+
+        if args.from_checkpoint:
+            model_kwargs['from_checkpoint'] = args.from_checkpoint
 
     if args.warmup_fraction:
         if args.batch_size is None:

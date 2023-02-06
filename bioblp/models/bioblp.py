@@ -1,3 +1,4 @@
+import os.path as osp
 from typing import Optional
 
 from pykeen.models import RotatE
@@ -12,6 +13,7 @@ from bioblp.models.encoders import PropertyEncoderRepresentation
 class BioBLP(RotatE):
     def __init__(self, *,
                  entity_representations: PropertyEncoderRepresentation,
+                 from_checkpoint: str = None,
                  **kwargs):
         super().__init__(**kwargs)
 
@@ -20,6 +22,12 @@ class BioBLP(RotatE):
 
         entity_representations.wrap_lookup_table(entity_embedding_lut)
         self.property_encoder = entity_representations
+
+        if from_checkpoint:
+            checkpoint = torch.load(osp.join(from_checkpoint,
+                                             'trained_model.pkl'),
+                                    map_location='cpu')
+            self.load_state_dict(checkpoint.state_dict(), strict=False)
 
     def score_hrt_and_negatives(self,
                                 hrt_batch: torch.LongTensor,
