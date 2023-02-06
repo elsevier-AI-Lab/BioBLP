@@ -1,8 +1,8 @@
 #!/bin/bash
-#SBATCH --job-name=bioblp-rotate-dummy
+#SBATCH --job-name=bioblp-d
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=18
-#SBATCH --time=08:00:00
+#SBATCH --time=24:00:00
 #SBATCH --mem=16G
 #SBATCH --partition=gpu
 #SBATCH --gpus=1
@@ -22,20 +22,20 @@ python -m bioblp.train \
         --train_triples=data/biokgb/graph/biokg.links-train.csv \
         --valid_triples=data/biokgb/graph/biokg.links-valid.csv \
         --test_triples=data/biokgb/graph/biokg.links-test.csv \
-        --text_data=data/biokgb/properties/dummy_biokg_meshid_to_descr_name.tsv \
+        --text_data=data/biokgb/properties/biokg_meshid_to_descr_name.tsv \
         --model=rotate \
         --dimension=256 \
         --loss_fn=crossentropy \
-        --optimizer=adagrad \
-        --regularizer=0.0002757262741946316 \
-        --learning_rate=0.07300713133641318 \
+        --optimizer=adam \
+        --learning_rate=2e-5 \
+        --warmup_fraction=0.05 \
         --num_epochs=100 \
         --batch_size=1024 \
         --eval_batch_size=64 \
         --num_negatives=512 \
-        --in_batch_negatives=False \
+        --in_batch_negatives=True \
         --log_wandb=True \
-        --notes="BioBLP-D RotatE, no descriptions, fixed eval batch size"
+        --notes="BioBLP-D"
 
 # Keep files generated during job
 RESULTS_FOLDER=$HOME/$PROJ_FOLDER-$OUT_FOLDER

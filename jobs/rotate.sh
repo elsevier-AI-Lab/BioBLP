@@ -2,7 +2,7 @@
 #SBATCH --job-name=bioblp-complex
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=18
-#SBATCH --time=25:00:00
+#SBATCH --time=01:00:00
 #SBATCH --mem=16G
 #SBATCH --partition=gpu
 #SBATCH --gpus=1
@@ -29,13 +29,14 @@ python -m bioblp.train \
         --optimizer=adam \
         --learning_rate=2e-5 \
         --warmup_fraction=0.05 \
-        --num_epochs=100 \
+        --num_epochs=10 \
         --batch_size=1024 \
+        --search_eval_batch_size=True \
+        --eval_every=1 \
         --num_negatives=512 \
         --in_batch_negatives=True \
-        --search_eval_batch_size=True \
         --log_wandb=True \
-        --notes="BioBLP-D RotatE in-batch negatives, Adam"
+        --notes="BioBLP-D 10 epoch test"
 
 # Keep files generated during job
 RESULTS_FOLDER=$HOME/$PROJ_FOLDER-$OUT_FOLDER
