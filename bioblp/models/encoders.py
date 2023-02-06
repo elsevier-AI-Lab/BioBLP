@@ -203,6 +203,9 @@ class PropertyEncoderRepresentation(nn.Module):
         self.type_ids = torch.tensor(list(self.type_id_to_data.keys()),
                                      dtype=torch.long)
 
+        for type_id, encoder in self.type_id_to_encoder.items():
+            self.add_module(f'type_{type_id}_encoder', encoder)
+
         embeddings_buffer = torch.zeros([num_entities, dim], dtype=torch.float,
                                         requires_grad=False)
         self.register_buffer('embeddings_buffer', embeddings_buffer)
