@@ -33,6 +33,7 @@ class Arguments(Tap):
     num_epochs: int = 100
     batch_size: int = 1024
     eval_batch_size: int = 16
+    eval_every: int = 10
     num_negatives: int = 512
     in_batch_negatives: bool = False
     add_inverses: bool = False
@@ -155,7 +156,7 @@ def run(args: Arguments):
                       stopper_kwargs={
                           'evaluation_batch_size': args.eval_batch_size,
                           'metric': args.early_stopper,
-                          'frequency': 10,
+                          'frequency': args.eval_every,
                           'patience': 5,
                           'relative_delta': 0.0001,
                           'larger_is_better': True
