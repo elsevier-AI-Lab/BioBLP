@@ -16,12 +16,19 @@ def build_encoders(dim: int,
 
     if protein_data:
         protein_encoder = encoders.PretrainedLookupTableEncoder(
-            file_path=protein_data
+            file_path=protein_data,
+            dim=dim
         )
         encoders_list.append(protein_encoder)
 
     if molecule_data:
-        raise NotImplementedError
+        # TODO: We might want to set different learning rates for different
+        # modules, potentially also with learning rate scheduling
+        molecule_encoder = encoders.MoleculeEmbeddingEncoder(
+            file_path=molecule_data,
+            dim=dim
+        )
+        encoders_list.append(molecule_encoder)
 
     if text_data:
         text_encoder = encoders.TransformerTextEncoder(

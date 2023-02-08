@@ -9,14 +9,16 @@ from transformers import AutoTokenizer, AutoModel
 
 from ..loaders.preprocessors import (TextEntityPropertyPreprocessor,
                                      MolecularFingerprintPreprocessor,
-                                     PretrainedEmbeddingPreprocessor)
+                                     PretrainedEmbeddingPreprocessor,
+                                     MoleculeEmbeddingPreprocessor)
 
 
 class PropertyEncoder(nn.Module):
     """An abstract class for encoders of entities with different properties"""
-    def __init__(self, file_path: str = None):
+    def __init__(self, file_path: str = None, dim: int = None):
         super().__init__()
         self.file_path = file_path
+        self.dim = dim
 
     def preprocess_properties(self,
                               entity_to_id: Mapping[str, int]
@@ -30,7 +32,7 @@ class PropertyEncoder(nn.Module):
 class LookupTableEncoder(PropertyEncoder):
     """A lookup table encoder for entities without properties."""
     def __init__(self, num_embeddings: int, dim: int):
-        super().__init__()
+        super().__init__(dim=dim)
         self.embeddings = nn.Embedding(num_embeddings, dim)
 
     def forward(self, indices: Tensor, device: torch.device) -> Tensor:
@@ -38,8 +40,8 @@ class LookupTableEncoder(PropertyEncoder):
 
 
 class PretrainedLookupTableEncoder(PropertyEncoder):
-    def __init__(self, file_path: str):
-        super().__init__(file_path)
+    def __init__(self, file_path: str, dim: int):
+        super().__init__(file_path, dim)
 
         data_dict = torch.load(file_path)
 
@@ -48,6 +50,8 @@ class PretrainedLookupTableEncoder(PropertyEncoder):
 
         self.embeddings = nn.Embedding(num_entities, in_dim)
         self.embeddings.weight.data = data_dict['embeddings']
+        # TODO: dim could be higher than in_dim
+        self.linear = nn.Linear(in_dim, dim)
 
     def preprocess_properties(self,
                               entity_to_id: Mapping[str, int]
@@ -57,13 +61,14 @@ class PretrainedLookupTableEncoder(PropertyEncoder):
 
     def forward(self, indices: Tensor, device: torch.device) -> Tensor:
         embs = self.embeddings(indices.to(device))
+        embs = self.linear(embs)
         return embs
 
 
 class MolecularFingerprintEncoder(PropertyEncoder):
     """Encoder of molecules described by a fingerprint"""
     def __init__(self, file_path: str, in_features: int, dim: int):
-        super().__init__(file_path)
+        super().__init__(file_path, dim)
 
         self.layers = nn.Sequential(nn.Linear(in_features, in_features // 2),
                                     nn.ReLU(),
@@ -83,6 +88,44 @@ class MolecularFingerprintEncoder(PropertyEncoder):
         return self.layers(data.to(device))
 
 
+class MoleculeEmbeddingEncoder(PropertyEncoder):
+    def __init__(self, file_path: str, dim: int):
+        super().__init__(file_path, dim)
+
+        data_dict = torch.load(file_path)
+        in_dim = next(iter(data_dict.values())).shape[-1]
+
+        self.self_attention = nn.MultiheadAttention(in_dim,
+                                                    num_heads=4,
+                                                    batch_first=True)
+        self.linear_hidden = nn.Linear(in_dim, in_dim)
+        self.linear_out = nn.Linear(in_dim, dim)
+
+    def preprocess_properties(self,
+                              entity_to_id: Mapping[str, int]
+                              ) -> Tuple[Tensor, Tensor, Tensor]:
+        processor = MoleculeEmbeddingPreprocessor()
+        return processor.preprocess_file(self.file_path, entity_to_id)
+
+    def forward(self, data: Tensor, device: torch.device) -> Tensor:
+        # data: (batch_size, length, dim)
+        x = data.to(device)
+
+        # attention_mask is True for positions that need to be treated as
+        # padding (ignored by self-attention). Padding has values of -10,000
+        attention_mask = (x < -1_000)
+        # To avoid any potential issues when actually computing self-attention,
+        # we rewrite values from -10,000 to 0.0
+        x[attention_mask] = 0.0
+        attention_mask = attention_mask.any(dim=-1)
+
+        x = self.self_attention(x, x, x, key_padding_mask=attention_mask)[0]
+        x = torch.relu(self.linear_hidden(x[:, 0]))
+        x = self.linear_out(x)
+
+        return x
+
+
 class TransformerTextEncoder(PropertyEncoder):
     """An encoder of entities with textual descriptions that uses BERT.
     Produces an embedding of an entity by passing the representation of
@@ -90,7 +133,7 @@ class TransformerTextEncoder(PropertyEncoder):
     BASE_MODEL = 'allenai/scibert_scivocab_uncased'
 
     def __init__(self, file_path: str, dim: int):
-        super().__init__(file_path)
+        super().__init__(file_path, dim)
         self.encoder = AutoModel.from_pretrained(self.BASE_MODEL)
 
         for parameter in self.encoder.parameters():

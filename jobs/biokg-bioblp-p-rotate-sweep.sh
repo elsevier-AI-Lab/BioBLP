@@ -1,11 +1,11 @@
 #!/bin/bash
-#SBATCH --job-name=biokg-complex-sweep
+#SBATCH --job-name=biokg-rotate-sweep
 #SBATCH --output=array_%A_%a.out
 #SBATCH --error=array_%A_%a.err
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=6
 #SBATCH --ntasks-per-node=1
-#SBATCH --time=50:00:00
+#SBATCH --time=72:00:00
 #SBATCH --mem=10G
 #SBATCH --partition=gpu_shared
 #SBATCH --gres=gpu:1
@@ -19,7 +19,7 @@ cd $TMPDIR/$PROJ_FOLDER
 
 source activate bioblp
 
-wandb agent --count 1 discoverylab/bioblp/v4hrbag0
+wandb agent --count 1 discoverylab/bioblp/4bxo7hv9
 
 # Keep files generated during job
 RESULTS_FOLDER=$HOME/$PROJ_FOLDER-$OUT_FOLDER

@@ -6,8 +6,10 @@ metric:
   name: validation.both.realistic.inverse_harmonic_mean_rank
   goal: maximize
 parameters:
+  model:
+    value: rotate
   loss_fn:
-    value: bcewithlogits
+    value: crossentropy
   learning_rate:
     distribution: log_uniform_values
     min: 1e-3
@@ -32,5 +34,5 @@ command:
   - '--search_eval_batch_size=True'
   - '--protein_data=data/biokgb/properties/protein_prottrans_embeddings.pt'
   - '--log_wandb=True'
-  - '--notes="BioBLP-P ComplEx sweep"'
+  - '--notes=BioBLP-P RotatE sweep'
   - ${args}
