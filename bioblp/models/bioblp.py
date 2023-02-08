@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Tuple
 
 from pykeen.models import RotatE
 from pykeen.nn.representation import Embedding as PyKEmbedding
@@ -25,7 +25,7 @@ class BioBLP(RotatE):
                                 hrt_batch: torch.LongTensor,
                                 num_negatives: int,
                                 *, mode: Optional[InductiveMode] = None
-                                ) -> tuple[torch.FloatTensor, torch.FloatTensor]:
+                                ) -> Tuple[torch.FloatTensor, torch.FloatTensor]:
         batch_size = hrt_batch.shape[0]
 
         h, r, t = self._get_representations(h=hrt_batch[:, 0],
