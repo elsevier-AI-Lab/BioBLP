@@ -570,16 +570,7 @@ def run(args):
     # Setup classifiers & pipelines
     ############
 
-    
-    # Compare models
-    ############
-
-    # candidates = [
-    #    lr_label,
-    # rf_label,
-    # MLP_label
-
-    # ]
+    logger.info("Config contains models {}.".format(conf.models))
 
     scorer = get_scorers()
 
