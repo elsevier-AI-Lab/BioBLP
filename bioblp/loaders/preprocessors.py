@@ -61,9 +61,14 @@ class TextEntityPropertyPreprocessor(EntityPropertyPreprocessor):
                     rows.append(row_count)
                     row_count += 1
 
+        if len(all_tokens) > 0:
+            all_tokens = torch.cat(all_tokens, dim=0)
+        else:
+            all_tokens = torch.tensor([], dtype=torch.long)
+
         return (torch.tensor(entity_ids, dtype=torch.long),
                 torch.tensor(rows, dtype=torch.long),
-                torch.cat(all_tokens, dim=0))
+                all_tokens)
 
 
 class MolecularFingerprintPreprocessor(EntityPropertyPreprocessor):

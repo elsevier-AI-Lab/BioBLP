@@ -1,7 +1,7 @@
-import pdb
+from functools import partial
 from typing import Mapping, Optional, Tuple, Iterable
 
-from pykeen.nn import Representation
+from pykeen.nn.representation import Embedding as PyKEmbedding
 import torch
 import torch.nn as nn
 from torch import Tensor
@@ -130,14 +130,11 @@ class TransformerTextEncoder(PropertyEncoder):
     """An encoder of entities with textual descriptions that uses BERT.
     Produces an embedding of an entity by passing the representation of
     the [CLS] symbol through a linear layer."""
-    BASE_MODEL = 'allenai/scibert_scivocab_uncased'
+    BASE_MODEL = 'dmis-lab/biobert-base-cased-v1.2'
 
     def __init__(self, file_path: str, dim: int):
         super().__init__(file_path, dim)
         self.encoder = AutoModel.from_pretrained(self.BASE_MODEL)
-
-        for parameter in self.encoder.parameters():
-            parameter.requires_grad = False
 
         encoder_hidden_size = self.encoder.config.hidden_size
         self.linear_out = nn.Linear(encoder_hidden_size, dim)
@@ -146,7 +143,7 @@ class TransformerTextEncoder(PropertyEncoder):
                               entity_to_id: Mapping[str, int]
                               ) -> Tuple[Tensor, Tensor, Tensor]:
         tokenizer = AutoTokenizer.from_pretrained(self.BASE_MODEL)
-        processor = TextEntityPropertyPreprocessor(tokenizer, max_length=32)
+        processor = TextEntityPropertyPreprocessor(tokenizer, max_length=64)
         data_tuple = processor.preprocess_file(self.file_path, entity_to_id)
         entities, data_idx, data = data_tuple
 
@@ -166,17 +163,18 @@ class TransformerTextEncoder(PropertyEncoder):
         return embeddings
 
 
-class PropertyEncoderRepresentation(Representation):
+class PropertyEncoderRepresentation(nn.Module):
     """A representation that maps entity IDs to an embedding that is a function
     of entity properties. Supports heterogeneous properties each with a
     potentially different encoder.
     """
     def __init__(self, dim: int, entity_to_id: Mapping[str, int],
-                 encoders: Iterable[PropertyEncoder]):
+                 encoders: Iterable[nn.Module]):
         num_entities = len(entity_to_id)
 
-        super().__init__(max_id=num_entities, shape=(dim,))
+        super().__init__()
 
+        self.dim = dim
         self.entity_types = torch.full([num_entities], fill_value=-1,
                                        dtype=torch.long)
         self.entity_data_idx = torch.zeros_like(self.entity_types)
@@ -193,16 +191,14 @@ class PropertyEncoderRepresentation(Representation):
             self.type_id_to_data[type_id] = data
 
         # Entities with no specified encoder are assigned a regular embedding
-        unspecified_type_id = len(self.type_id_to_data)
+        self.unspecified_type_id = len(self.type_id_to_data)
         unspecified_mask = self.entity_types == -1
         num_unspecified_entities = unspecified_mask.sum().int().item()
         unspecified_index = torch.arange(num_unspecified_entities)
 
-        lookup_encoder = LookupTableEncoder(num_unspecified_entities, dim)
-        self.type_id_to_encoder[unspecified_type_id] = lookup_encoder
-        self.entity_types[unspecified_mask] = unspecified_type_id
+        self.entity_types[unspecified_mask] = self.unspecified_type_id
         self.entity_data_idx[unspecified_mask] = unspecified_index
-        self.type_id_to_data[unspecified_type_id] = unspecified_index
+        self.type_id_to_data[self.unspecified_type_id] = unspecified_index
 
         self.type_ids = torch.tensor(list(self.type_id_to_data.keys()),
                                      dtype=torch.long)
@@ -214,38 +210,61 @@ class PropertyEncoderRepresentation(Representation):
                                         requires_grad=False)
         self.register_buffer('embeddings_buffer', embeddings_buffer)
 
-    def _plain_forward(self, indices: Optional[torch.LongTensor] = None,
-                ) -> torch.Tensor:
-        if self.training and indices is not None:
-            batch_size = indices.shape[0]
-            device = indices.device
-            out = torch.empty([batch_size, self.shape[0]], dtype=torch.float,
-                              device=device)
+    def wrap_lookup_table(self, lookup_table: PyKEmbedding):
+        lookup_table._plain_forward = partial(
+            PropertyEncoderRepresentation.encode_entities,
+            lookup_table=lookup_table,
+            encoder_modules=self
+        )
 
-            # Sadly we have to move indices back to cpu to get property data
-            indices = indices.cpu()
-            entity_types = self.entity_types[indices]
-            type_assignments = entity_types.unsqueeze(-1) == self.type_ids
-            types_in_batch = torch.unique(entity_types).tolist()
+    @staticmethod
+    def encode_entities(lookup_table: PyKEmbedding,
+                        indices: Optional[torch.LongTensor],
+                        encoder_modules: 'PropertyEncoderRepresentation'
+                        ) -> Optional[torch.Tensor]:
+        # This method is adapted from
+        # pykeen.nn.representation.Embedding._plain_forward
 
-            for t in types_in_batch:
-                entity_type_mask = type_assignments[:, t]
-
-                entities = indices[entity_type_mask]
-
-                type_t_data = self.type_id_to_data[t]
-                data = type_t_data[self.entity_data_idx[entities]]
-
-                encoder = self.type_id_to_encoder[t]
-                out[entity_type_mask] = encoder(data, device=device)
-
-            # Update buffer
-            self.embeddings_buffer[indices] = out.detach()
+        if indices is None:
+            # Here we assume that if indices is None, we are not training,
+            # so we pass the buffer of embeddings of all entities
+            prefix_shape = (lookup_table.max_id,)
+            x = encoder_modules.embeddings_buffer
         else:
-            # Use buffer during evaluation for speed
-            if indices is None:
-                return self.embeddings_buffer
-            else:
-                out = self.embeddings_buffer[indices]
+            prefix_shape = indices.shape
+            if encoder_modules.training:
+                batch_size = indices.shape[0]
+                device = indices.device
+                x = torch.empty([batch_size, encoder_modules.dim],
+                                dtype=torch.float,
+                                device=device)
 
-        return out
+                # Sadly we have to move indices back to cpu to get property data
+                indices = indices.cpu()
+                entity_types = encoder_modules.entity_types[indices]
+                type_assignments = entity_types.unsqueeze(-1) == encoder_modules.type_ids
+                types_in_batch = torch.unique(entity_types).tolist()
+
+                for t in types_in_batch:
+                    entity_type_mask = type_assignments[:, t]
+                    entities = indices[entity_type_mask]
+
+                    if t != encoder_modules.unspecified_type_id:
+                        type_t_data = encoder_modules.type_id_to_data[t]
+                        data = type_t_data[encoder_modules.entity_data_idx[entities]]
+                        encoder = encoder_modules.type_id_to_encoder[t]
+                        embeddings = encoder(data, device=device)
+                    else:
+                        embeddings = lookup_table._embeddings(entities.to(device))
+
+                    x[entity_type_mask] = embeddings
+                    encoder_modules.embeddings_buffer[indices] = x.detach()
+            else:
+                x = encoder_modules.embeddings_buffer[indices]
+
+        x = x.view(*prefix_shape, *lookup_table._shape)
+        if lookup_table.is_complex:
+            x = torch.view_as_complex(x)
+        # verify that contiguity is preserved
+        assert x.is_contiguous()
+        return x
