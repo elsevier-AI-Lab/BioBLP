@@ -16,18 +16,29 @@ logger = get_logger(__name__)
 COL_LABEL = 'label'
 
 
+<<<<<<< HEAD
 def prepare_dpi_samples(pos_df, 
                         num_negs_per_pos: Union[None, int, str] = 1,
                         entity_to_id_map: Union[None, dict] = None, 
                         relation_to_id_map: Union[None, dict] = None,
                         # map_to_kgem_ids=False,
                         filtered=True):
+=======
+def prepare_dpi_samples(pos_df, entity_to_id_map, relation_to_id_map,
+                       num_negs_per_pos: Union[None, int, str] = 1,
+                       map_to_kgem_ids=True,
+                       filtered=True):
+>>>>>>> add missing parameter
     """
     pos_df -> Expects dataframe with true positives in format ['src', edge', 'tgt'],
               where the entities and relations of the triple are in their string ids.
               These will be converted to KGEM integer ids at a later state
     """
+<<<<<<< HEAD
     pos_neg_df = pos_df.copy()
+=======
+    
+>>>>>>> add missing parameter
     pos_triples = TriplesFactory.from_labeled_triples(pos_df[[COL_SOURCE, COL_EDGE, COL_TARGET]].values, 
                                                       entity_to_id=entity_to_id_map, 
                                                       relation_to_id=relation_to_id_map)
@@ -55,7 +66,11 @@ def generate_negative_triples(pos_triples: TriplesFactory,
                              filtered=True,
                              num_negs_per_pos = 1):
         
+<<<<<<< HEAD
     neg_sampler = PseudoTypedNegativeSampler(mapped_triples=pos_triples.mapped_triples, 
+=======
+    neg_sampler = BasicNegativeSampler(mapped_triples=pos_triples.mapped_triples, 
+>>>>>>> add missing parameter
                                        filtered=filtered,
                                       num_negs_per_pos=num_negs_per_pos)
     pos_batch = pos_triples.mapped_triples
