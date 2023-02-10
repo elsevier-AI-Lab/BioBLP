@@ -1,20 +1,37 @@
 
 data_root = "/home/jovyan/workbench-shared-folder/bioblp/"
-n_iter = 2
-inner_n_folds = 3
-outer_n_folds = 3
-shuffle = true
-refit_params = ["AUCPR", "AUCROC"]
+experiment_root = "data/benchmarks/experiments/dpi_fda/"
 
-# locations need to contain X and y
+[sampling]
+outdir = "sampled"
+num_negs_per_pos = 10
+kg_triples_dir = "data/benchmarks/backbone_kg/"
+
 [features]
-noise = "data/benchmarks/features/random-noise-lookup-embeddings/"
-# complex = "data/benchmarks/features/complex/"
-# transe = "data/benchmarks/features/transe/"
-# rotate = "data/benchmarks/features/rotate/"
-structure = "data/benchmarks/features/structure/"
+outdir = "features"
+transform = "concat"
+missing_values = "random"
+encoders = ["noise", "structural", "complex", "rotate"]
+
+
+[features.encoder_args.noise]
+random_seed = 24
+
+[features.encoder_args.structural]
+proteins = "data/benchmarks/experiments/encoders/proteins"
+molecules = "data/benchmarks/experiments/encoders/molecules"
+
+[features.encoder_args.complex]
+model_dir = "data/benchmarks/experiments/encoders/complex/"
+
+[features.encoder_args.rotate]
+model_dir = "data/benchmarks/experiments/encoders/rotate/"
+
+[features.encoder_args.transe]
+model_dir = "data/benchmarks/experiments/encoders/transe/"
 
 [models]
+outdir = "models"
 
 [models.noise_lr]
 feature = "noise"
@@ -28,14 +45,21 @@ model = "RF"
 feature = "noise"
 model = "MLP"
 
-[models.structure_lr]
-feature = "structure"
+[models.structural_lr]
+feature = "structural"
 model = "LR"
 
-[models.structure_rf]
-feature = "structure"
+[models.structural_rf]
+feature = "structural"
 model = "RF"
 
-[models.structure_mlp]
-feature = "structure"
+[models.structural_mlp]
+feature = "structural"
 model = "MLP"
+
+[train]
+n_iter = 2
+inner_n_folds = 3
+outer_n_folds = 3
+shuffle = true
+refit_params = ["AUCPR", "AUCROC"]
