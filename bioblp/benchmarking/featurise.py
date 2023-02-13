@@ -14,11 +14,11 @@ from torch import nn
 from torch import Tensor
 
 from pathlib import Path
-
+from enum import Enum
 from time import time
 from tqdm import tqdm
 
-from typing import Tuple
+from typing import Tuple, List
 
 from bioblp.data import COL_EDGE, COL_SOURCE, COL_TARGET
 from bioblp.logging import get_logger
@@ -32,6 +32,12 @@ STRUCTURAL = "structural"
 COMPLEX = "complex"
 TRANSE = "transe"
 ROTATE = "rotate"
+
+# Missing value methods
+class MissingValueMethod(Enum):
+    DROP = "drop"
+    MEAN = "mean"
+    RANDOM = "random"
 
 
 def get_random_tensor(shape, random_seed: int = 42, emb_range=(-1, 1)) -> Tensor:
@@ -73,30 +79,32 @@ class EntityEncoder(ABC):
     def from_file(cls, emb_file, entity_to_id_file):
         raise NotImplementedError
 
-    def impute_missing_value(self, x, missing_value: str) -> Tensor:
-        """can be {'inf', 'random', 'avg'}
+    def impute_missing_value(self, x, missing_value: MissingValueMethod) -> Tensor:
+        """can be {'drop', 'random', 'mean'}
         """
         emb = None
 
-        if missing_value == "inf":
+        if missing_value is MissingValueMethod.DROP:
             emb = torch.ones((self._emb_dim)) * float('-inf')
 
-        elif missing_value == "random":
+        elif missing_value is MissingValueMethod.RANDOM:
             if x in self._missing_value_cache:
                 emb = self._missing_value_cache.get(x)
             else:
                 # create new random
-                emb = get_random_tensor((self._emb_dim))
+                # TODO: ensure distribution is similar to base embedding
+                random_perturbation = get_random_tensor((self._emb_dim))
+                emb = self._emb_mean + random_perturbation
 
                 # store in cache
                 self._missing_value_cache[x] = emb
 
-        elif missing_value == "avg":
+        elif missing_value is MissingValueMethod.MEAN:
             emb = self._emb_mean
 
         return emb
 
-    def encode(self, x: Tensor, missing_value: str = "avg") -> Tuple[Tensor, Tensor]:
+    def encode(self, x: Tensor, missing_value: str = MissingValueMethod.MEAN) -> Tuple[Tensor, Tensor]:
         embs = []
         mask = []
 
@@ -228,7 +236,7 @@ class EntityPairEncoder():
         # default
         return torch.cat([left_enc, right_enc], dim=1)
 
-    def encode(self, x, missing_value: str = "random", transform="concat") -> Tensor:
+    def encode(self, x, missing_value: MissingValueMethod = MissingValueMethod.DROP, transform: str = "concat") -> Tensor:
         """
         """
         left = x[:, 0]
@@ -341,8 +349,10 @@ def build_encodings(config, pairs, encoders, encoder_args, encoded_bm, entities_
         encoder_i_args = encoder_args.get(encoder_i_label)
         pair_encoder = get_encoder(encoder_i_label, encoder_i_args, entities=entities_filter)
 
+        missing_value_method = MissingValueMethod(config.missing_values)
+
         encoded_pairs, encoded_mask = pair_encoder.encode(pairs, 
-                                                          missing_value=config.missing_values,
+                                                          missing_value=missing_value_method,
                                                           transform=config.transform)
 
         encoded_bm.append((encoder_i_label, encoded_pairs, encoded_mask))
@@ -395,8 +405,8 @@ def main(bm_file: str, conf: str, override_data_root = None):
                                  encoder_args=config.encoder_args, entities_filter=all_entities)
 
 
-    # common mask
-
+    # common mask only when dropping missing embeddings
+    if config.missing_values == MissingValueMethod.DROP.value:
     masked_encoded_bm = apply_common_mask(encoded_bm)
 
     
