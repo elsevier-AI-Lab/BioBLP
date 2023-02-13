@@ -10,7 +10,7 @@ kg_triples_dir = "data/benchmarks/backbone_kg/"
 [features]
 outdir = "features"
 transform = "concat"
-missing_values = "drop"
+missing_values = "random"
 encoders = ["noise", "structural", "complex", "rotate"]
 
 
@@ -31,7 +31,6 @@ model_dir = "data/benchmarks/experiments/encoders/rotate/"
 model_dir = "data/benchmarks/experiments/encoders/transe/"
 
 [models]
-outdir = "models"
 
 [models.noise_lr]
 feature = "noise"
@@ -57,9 +56,34 @@ model = "RF"
 feature = "structural"
 model = "MLP"
 
+[models.complex_lr]
+feature = "complex"
+model = "LR"
+
+[models.complex_rf]
+feature = "complex"
+model = "RF"
+
+[models.complex_mlp]
+feature = "complex"
+model = "MLP"
+
+[models.rotate_lr]
+feature = "rotate"
+model = "LR"
+
+[models.rotate_rf]
+feature = "rotate"
+model = "RF"
+
+[models.rotate_mlp]
+feature = "rotate"
+model = "MLP"
+
 [train]
 n_iter = 2
-inner_n_folds = 3
-outer_n_folds = 3
+inner_n_folds = 2
+outer_n_folds = 2
 shuffle = true
 refit_params = ["AUCPR", "AUCROC"]
+outdir = "models"

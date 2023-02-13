@@ -12,6 +12,7 @@ import wandb
 
 from torch import nn
 from argparse import ArgumentParser
+from dataclasses import asdict
 from pathlib import Path
 from time import time
 from collections import defaultdict
@@ -39,7 +40,7 @@ from sklearn.model_selection import cross_validate
 from skorch import NeuralNet
 from skorch import NeuralNetClassifier
 
-from typing import Union
+from typing import Union, Tuple, List, Dict
 
 from bioblp.data import COL_EDGE, COL_SOURCE, COL_TARGET
 from bioblp.logging import get_logger
@@ -56,19 +57,37 @@ DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 @dataclass
 class NestedCVArguments():
     data_root: str
-    features: dict
+    experiment_root: str
+    outdir: str
     models: dict
+    shuffle: bool
+    refit_params: List[str]
     n_iter: int = field(default=2, metadata={"help": "Stuff"})
     inner_n_folds: int = field(default=3)
     outer_n_folds: int = field(default=3)
 
-    @classmethod
-    def from_toml(cls, toml_path: Union[str, Path]):
-        conf = {}
-        with open(Path(toml_path), "r") as f:
-            conf = toml.load(f)
 
-        return cls(**conf)
+def load_toml(toml_path: str) -> dict:
+    toml_path = Path(toml_path)
+    config = {}
+    with open(toml_path, "r") as f:
+        config = toml.load(f)
+
+    return config
+
+
+def parse_train_config(toml_path: str) -> dict:
+    conf = load_toml(toml_path=toml_path)
+    cfg = {}
+    
+    cfg["models"] = conf.get("models")
+
+    cfg.update(conf.get("train"))
+
+    cfg["data_root"] = conf.get("data_root")
+    cfg["experiment_root"] = conf.get("experiment_root")
+
+    return cfg
 
 
 def get_random_string(length):
@@ -112,6 +131,10 @@ def get_scorers():
         "AUCPR": make_scorer(aupr_score, needs_proba=True),
     }
     return scorers
+
+
+def get_model_label(feature: str, model: str):
+    return f"{feature}__{model}"
 
 
 class FileResultTracker():
@@ -329,14 +352,14 @@ class MLPObjective(CVObjective):
 
 def create_cv_objective(name, X_train, y_train, scoring, cv,
                         refit_params=["AUCPR", "AUCROC"], run_id: Union[str, None] = None):
-    if name == "LR":
+    if "LR" in name:
         return LRObjective(X_train=X_train, y_train=y_train, scoring=scoring, cv=cv,
                            refit_params=refit_params, run_id=run_id)
-    elif name == "RF":
+    elif "RF" in name:
 
         return RFObjective(X_train=X_train, y_train=y_train, scoring=scoring, cv=cv,
                            refit_params=refit_params, run_id=run_id)
-    elif name == "MLP":
+    elif "MLP" in name:
 
         return MLPObjective(X_train=torch.tensor(X_train, dtype=torch.float32),
                             y_train=torch.tensor(
@@ -345,7 +368,7 @@ def create_cv_objective(name, X_train, y_train, scoring, cv,
 
 
 def transform_model_inputs(X, y, model_name: str):
-    if model_name == "MLP":
+    if "MLP" in model_name:
         Xt = torch.tensor(X, dtype=torch.float32)
         yt = torch.tensor(y, dtype=torch.float32).unsqueeze(1)
         return Xt, yt
@@ -353,7 +376,8 @@ def transform_model_inputs(X, y, model_name: str):
     return X, y
 
 
-def run_nested_cv(candidates: list,
+def run_nested_cv(models: Dict[str, dict],
+                  data_dir: str,
                   X,
                   y,
                   scoring: dict,
@@ -366,13 +390,14 @@ def run_nested_cv(candidates: list,
                   refit_params: list = ["AUCPR", "AUCROC"],
                   verbose: int = 14,
                   outdir: Path = None,
-                  timestamp: str = None
+                  timestamp: str = None,
+                  wandb_tag: str = None
                   ) -> dict:
     """Nested cross validation routine.
     Inner cv loop performs hp optimization on all folds and surfaces
     Parameters
     ----------
-    candidates : list
+    conf : NestedCVArguments
         list of (label)
     X : np.array
         predictor
@@ -410,7 +435,13 @@ def run_nested_cv(candidates: list,
 
     study_prefix = unique_study_prefix()
 
-    for name in candidates:
+    feature_dir = Path(data_dir)
+
+    for model_label, model_cfg in models.items():
+        model_feature = model_cfg.get("feature")
+        model_clf = model_cfg.get("model")
+
+        name = get_model_label(feature=model_feature, model=model_clf)
 
         outer_cv = StratifiedKFold(
             n_splits=outer_n_folds, shuffle=shuffle, random_state=random_state
@@ -421,7 +452,11 @@ def run_nested_cv(candidates: list,
         outer_scores[name]["curves"] = defaultdict(list)
         outer_scores[name]["params"] = []
 
+        # use raw benchmark table to perform cf split but load specific feature set
         for fold_i, (train_idx, test_idx) in enumerate(outer_cv.split(X, y)):
+
+            # load feature set
+            X_feat, y_feat = load_feature_data(feature_dir.joinpath(f"{model_feature}.pt"))
 
             # generate study name based on model, fold and some random word
             study_name = generate_study_name(study_prefix, name, fold_i)
@@ -434,8 +469,8 @@ def run_nested_cv(candidates: list,
             # create objective
             objective = create_cv_objective(
                 name=name,
-                X_train=X[train_idx, :],
-                y_train=y[train_idx],
+                X_train=X_feat[train_idx, :],
+                y_train=y_feat[train_idx],
                 cv=inner_cv,
                 scoring=scoring,
                 refit_params=refit_params,
@@ -443,9 +478,13 @@ def run_nested_cv(candidates: list,
             )
 
             # set calbacks
+            tags = [study_name, study_prefix, name]
+            if wandb_tag is not None:
+                tags.append(wandb_tag)
+
             wandb_kwargs = {"project": "bioblp-dpi",
                             "entity": "discoverylab",
-                            "tags": [study_name, study_prefix, name]}
+                            "tags": tags}
 
             wandb_callback = WeightsAndBiasesCallback(
                 metric_name=refit_params, wandb_kwargs=wandb_kwargs, as_multirun=True)
@@ -492,7 +531,7 @@ def run_nested_cv(candidates: list,
             outer_scores[name]["params"].append(best_params_i)
 
             # torch tensor transform if MLP else return same
-            X_t, y_t = transform_model_inputs(X, y, model_name=name)
+            X_t, y_t = transform_model_inputs(X_feat, y_feat, model_name=name)
 
             model.fit(X_t[train_idx, :], y_t[train_idx])
 
@@ -527,15 +566,21 @@ def run_nested_cv(candidates: list,
     return outer_scores
 
 
-def load_feature_data(feat_path: Union[str, Path]) -> (np.array, np.array):
+def load_feature_data(feat_path: Union[str, Path]) -> Tuple[np.array, np.array]:
 
     ############
     # Load data
     ############
     logger.info("Loading training data...")
 
-    X = np.load(data_dir.joinpath("X.npy"))
-    y = np.load(data_dir.joinpath("y.npy"))
+    data = torch.load(feat_path)
+
+    X = data.get("X")
+    y = data.get("y")
+
+    if torch.is_tensor(X):
+        X = X.numpy()
+        y = y.numpy()
 
     logger.info(
         "Resulting shapes X: {}, y: {}".format(
@@ -552,42 +597,51 @@ def run(args):
 
     # reproducibility
     # SEED is set as global
+    start = time()
+    run_timestamp = args.override_timestamp or int(start)
+
+    logger.info("Starting model building script at {}.".format(start))
 
     conf_path = Path(args.conf)
-    outdir = Path(args.outdir)
 
-    conf = NestedCVArguments.from_toml(conf_path)
+    conf_dict = parse_train_config(conf_path)
+
+    conf = NestedCVArguments(**conf_dict)
+    
+    out_root = Path(conf.experiment_root).joinpath(str(run_timestamp))
+    models_out = out_root.joinpath(conf.outdir)
+
 
     exp_output = defaultdict(dict)
     exp_output["config"] = asdict(conf)
 
-    start = time()
-    run_timestamp = int(start)
-
-    logger.info("Starting model building script at {}.".format(start))
 
     ############
     # Setup classifiers & pipelines
     ############
+
+    X_bm, y_bm = load_feature_data(out_root.joinpath("raw.pt"))
 
     logger.info("Config contains models {}.".format(conf.models))
 
     scorer = get_scorers()
 
     nested_cv_scores = run_nested_cv(
-        candidates=conf.models,
-        X=X_train,
-        y=y_train,
+        models=conf.models,
+        data_dir=out_root,
+        X=X_bm,
+        y=y_bm,
         scoring=scorer,
         inner_n_folds=conf.inner_n_folds,
         inner_n_iter=conf.n_iter,
         outer_n_folds=conf.outer_n_folds,
         shuffle=conf.shuffle,
-        n_jobs=conf.n_proc,
+        n_jobs=args.n_proc,
         refit_params=conf.refit_params,
         random_state=SEED,
-        outdir=outdir,
-        timestamp=run_timestamp
+        outdir=models_out,
+        timestamp=run_timestamp,
+        wandb_tag=args.tag
     )
 
     for algo, scores in nested_cv_scores.items():
@@ -597,7 +651,7 @@ def run(args):
 
     logger.info(exp_output)
 
-    file_out = out_dir.joinpath(
+    file_out = models_out.joinpath(
         "nested_cv_scores_{}.npy".format(run_timestamp))
     logger.info("Saving to {}".format(file_out))
     np.save(file_out, exp_output)
@@ -611,10 +665,15 @@ if __name__ == "__main__":
     parser = ArgumentParser(description="Run model training procedure")
     parser.add_argument("--conf", type=str,
                         help="Path to experiment configuration")
-    parser.add_argument("--outdir", type=str, help="Path to write output")
-    # parser.add_argument(
-    #     "--n_proc", type=int, default=1, help="Number of cores to use in process."
-    # )
+    parser.add_argument("--override_data_root", type=str,
+                        help="Path to root of data tree")
+    parser.add_argument("--override_timestamp", type=str,
+                        help="Path to root of data tree")
+    parser.add_argument(
+        "--n_proc", type=int, default=1, help="Number of cores to use in process."
+    )
+    parser.add_argument("--tag", type=str,
+                        help="Optional tag to add to wand runs")
     # parser.add_argument(
     #     "--n_iter", type=int, default=2, help="Number of iterations in HPO in inner cv."
     # )
