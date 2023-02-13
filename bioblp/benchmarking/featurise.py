@@ -334,7 +334,37 @@ def save_features(outdir, label, feature):
     torch.save(feature, outfile)
 
 
-def build_features(bm_file: str, conf: str, override_data_root = None):
+def build_encodings(config, pairs, encoders, encoder_args, encoded_bm, entities_filter) -> Tuple[str, Tensor, Tensor]:
+    encoded_bm = []
+    for encoder_i_label in tqdm(encoders, desc=f"encoding benchmarks..."):
+        logger.info(f"encoding with {encoder_i_label}")
+        encoder_i_args = encoder_args.get(encoder_i_label)
+        pair_encoder = get_encoder(encoder_i_label, encoder_i_args, entities=entities_filter)
+
+        encoded_pairs, encoded_mask = pair_encoder.encode(pairs, 
+                                                          missing_value=config.missing_values,
+                                                          transform=config.transform)
+
+        encoded_bm.append((encoder_i_label, encoded_pairs, encoded_mask))
+    return encoded_bm
+
+
+def apply_common_mask(encoded_bm) -> Tuple[str, Tensor]:
+    logger.info("masking features...")
+
+    all_masks = [x[2] for x in encoded_bm]
+    common_mask = torch.from_numpy(reduce(np.intersect1d, all_masks))
+
+    logger.info(f"size after common mask {len(common_mask)}")
+
+    masked_encoded_bm = []
+    for enc_label, enc_pairs, _ in encoded_bm:
+        masked_enc_pairs = enc_pairs[common_mask]
+        masked_encoded_bm.append((enc_label, masked_enc_pairs))
+    return masked_encoded_bm
+
+
+def main(bm_file: str, conf: str, override_data_root = None):
 
 
     config = parse_feature_conf(conf)
@@ -356,43 +386,18 @@ def build_features(bm_file: str, conf: str, override_data_root = None):
                         COL_SOURCE, COL_EDGE, COL_TARGET, "label"], header=0)
     logger.info(bm_df.head())
 
-    src_entities = bm_df[COL_SOURCE].values
-    tgt_entities = bm_df[COL_TARGET].values
-    all_entities = list(src_entities) + list(tgt_entities)
-
     pairs = bm_df[[COL_SOURCE, COL_TARGET]].values
-
-    encoders = config.encoders
-    encoder_args = config.encoder_args
-
-    encoded_bm = []
+    all_entities = np.unique(np.ravel(pairs)).tolist()
 
     # perform encodings
 
-    for encoder_i_label in tqdm(encoders, desc=f"encoding benchmarks..."):
-        logger.info(f"encoding with {encoder_i_label}")
-        encoder_i_args = encoder_args.get(encoder_i_label)
-        pair_encoder = get_encoder(encoder_i_label, encoder_i_args, entities=all_entities)
-
-        encoded_pairs, encoded_mask = pair_encoder.encode(pairs, 
-                                                    missing_value=config.missing_values,
-                                                    transform=config.transform)
-
-        encoded_bm.append((encoder_i_label, encoded_pairs, encoded_mask))
+    encoded_bm = build_encodings(config=config, pairs=pairs, encoders=config.encoders, 
+                                 encoder_args=config.encoder_args, entities_filter=all_entities)
 
 
     # common mask
-    logger.info("masking features...")
 
-    all_masks = [x[2] for x in encoded_bm]
-    common_mask = torch.from_numpy(reduce(np.intersect1d, all_masks))
-
-    logger.info(f"size after common mask {len(common_mask)}")
-
-    masked_encoded_bm = []
-    for enc_label, enc_pairs, _ in encoded_bm:
-        masked_enc_pairs = enc_pairs[common_mask]
-        masked_encoded_bm.append((enc_label, masked_enc_pairs))
+    masked_encoded_bm = apply_common_mask(encoded_bm)
 
     
     logger.info("saving features...")
@@ -408,7 +413,7 @@ def build_features(bm_file: str, conf: str, override_data_root = None):
 
 def get_parser() -> ArgumentParser:
     parser = ArgumentParser(
-        description="Run full benchmark experiment procedure")
+        description="Generate features for benchmark datasets")
     parser.add_argument("--conf", type=str,
                         help="Path to experiment configuration")
     parser.add_argument("--bm_file", type=str, help="Path to benchmark data")
@@ -426,4 +431,4 @@ if __name__ == "__main__":
 
     args = get_parser().parse_args()
 
-    build_features(**vars(args))
+    main(**vars(args))
