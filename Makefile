@@ -44,7 +44,6 @@ update:
 	poetry export -f requirements.txt --without-hashes  --with dev --output requirements.txt
 
 test:
-	make lint
 	poetry run pytest tests
 
 create_ipython_kernel:
