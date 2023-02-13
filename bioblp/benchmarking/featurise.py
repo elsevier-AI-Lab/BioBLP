@@ -18,12 +18,11 @@ from enum import Enum
 from time import time
 from tqdm import tqdm
 
-from typing import Tuple, List
+from typing import Tuple, List, Dict
 
 from bioblp.data import COL_EDGE, COL_SOURCE, COL_TARGET
 from bioblp.logging import get_logger
 
-from bioblp.benchmarking.encoders import PretrainedLookupEncoder
 
 logger = get_logger(__name__)
 
@@ -33,7 +32,7 @@ COMPLEX = "complex"
 TRANSE = "transe"
 ROTATE = "rotate"
 
-# Missing value methods
+
 class MissingValueMethod(Enum):
     DROP = "drop"
     MEAN = "mean"
@@ -75,9 +74,6 @@ class EntityEncoder(ABC):
         self._emb_mean = torch.mean(self.embeddings, dim=0)
         self._missing_value_cache = {}
 
-    @classmethod
-    def from_file(cls, emb_file, entity_to_id_file):
-        raise NotImplementedError
 
     def impute_missing_value(self, x, missing_value: MissingValueMethod) -> Tensor:
         """can be {'drop', 'random', 'mean'}
@@ -104,7 +100,7 @@ class EntityEncoder(ABC):
 
         return emb
 
-    def encode(self, x: Tensor, missing_value: str = MissingValueMethod.MEAN) -> Tuple[Tensor, Tensor]:
+    def encode(self, x: List[str], missing_value: str = MissingValueMethod.MEAN) -> Tuple[Tensor, Tensor]:
         embs = []
         mask = []
 
@@ -129,7 +125,7 @@ class EntityEncoder(ABC):
 class NoiseEncoder(EntityEncoder):
 
     @classmethod
-    def from_entities(cls, entities, random_seed: int = 42, dim=128, emb_range=(-1, 1)):
+    def from_entities(cls, entities: List[str], random_seed: int = 42, dim: int = 128, emb_range: Tuple[int, int] = (-1, 1)):
         entity_set = set(entities)
         entity2id = {k: idx for idx, k in enumerate(sorted(list(entity_set)))}
 
@@ -144,8 +140,8 @@ class NoiseEncoder(EntityEncoder):
 class ProteinEncoder(EntityEncoder):
 
     @classmethod
-    def from_file(cls, emb_file, entity_to_id):
-        logger.info("loading protein data...")
+    def from_file(cls, emb_file: Path, entity_to_id: Path):
+        logger.info(f"Loading protein data from {emb_file}...")
 
         embs = torch.load(emb_file)
         entity2id = {}
@@ -160,8 +156,8 @@ class ProteinEncoder(EntityEncoder):
 class MoleculeEncoder(EntityEncoder):
 
     @classmethod
-    def from_file(cls, emb_file):
-        logger.info("loading molecule data...")
+    def from_file(cls, emb_file: Path):
+        logger.info(f"Loading molecule data from {emb_file}...")
         data_dict = torch.load(emb_file)
 
         emb_data = data_dict['embeddings']
@@ -181,14 +177,12 @@ class MoleculeEncoder(EntityEncoder):
 class KGEMEncoder(EntityEncoder):
 
     @classmethod
-    def from_model(cls, model_file, entity_to_id_file, device="cpu", filter_entities=None):
-        logger.info(f"loading model data from {model_file}...")
+    def from_model(cls, model_file: Path, entity_to_id_file: Path, device: str = "cpu", filter_entities: List[str] = None):
+        logger.info(f"Loading model data from {model_file}...")
 
         model = torch.load(model_file, map_location=torch.device(device))
         entity2id_df = pd.read_csv(entity_to_id_file, sep="\t", header=0, compression="gzip")\
             .sort_values(by="id", ascending=True)
-
-        logger.info(entity2id_df.head())
 
         entity_to_kgid = {k: v for (k, v) in entity2id_df[[
             "label", "id"]].values}
@@ -202,8 +196,6 @@ class KGEMEncoder(EntityEncoder):
             entity_to_idx = {}
 
             for ent_idx, ent_i in enumerate(sorted(filter_entities)):
-                logger.info(ent_idx, ent_i)
-
                 entity_kge_ids.append(entity_to_kgid.get(ent_i))
                 entity_to_idx[ent_i] = ent_idx
 
@@ -230,13 +222,13 @@ class EntityPairEncoder():
         self.left_encoder = left_encoder
         self.right_encoder = right_encoder
 
-    def _combine(self, left_enc, right_enc, transform="concat"):
+    def _combine(self, left_enc: Tensor, right_enc: Tensor, transform: str = "concat"):
         if transform == "concat":
             return torch.cat([left_enc, right_enc], dim=1)
         # default
         return torch.cat([left_enc, right_enc], dim=1)
 
-    def encode(self, x, missing_value: MissingValueMethod = MissingValueMethod.DROP, transform: str = "concat") -> Tensor:
+    def encode(self, x: np.array, missing_value: MissingValueMethod = MissingValueMethod.DROP, transform: str = "concat") -> Tensor:
         """
         """
         left = x[:, 0]
@@ -252,17 +244,18 @@ class EntityPairEncoder():
         return total_enc, common_mask
 
 
-def RandomNoisePairEncoder(entities, random_seed) -> EntityPairEncoder:
+def RandomNoisePairEncoder(entities: List[str], random_seed: int) -> EntityPairEncoder:
 
     # prepare noisy embeddings
-    noise_encoder = NoiseEncoder.from_entities(entities=entities, random_seed=random_seed)
+    noise_encoder = NoiseEncoder.from_entities(
+        entities=entities, random_seed=random_seed)
 
     pair_encoder = EntityPairEncoder(
         left_encoder=noise_encoder, right_encoder=noise_encoder)
     return pair_encoder
 
 
-def StructuralPairEncoder(proteins, molecules) -> EntityPairEncoder:
+def StructuralPairEncoder(proteins: Path, molecules: Path) -> EntityPairEncoder:
 
     # prepare molecular embeddings
     mol_path = Path(molecules)
@@ -271,15 +264,16 @@ def StructuralPairEncoder(proteins, molecules) -> EntityPairEncoder:
 
     # prepare protein embeddings
     proteins_path = Path(proteins)
-    prot_encoder = ProteinEncoder.from_file(emb_file=proteins_path.joinpath("protein_embeddings_full_24_12.pt"),
-                                            entity_to_id=proteins_path.joinpath("biokg_uniprot_complete_ids.json"))
+    prot_encoder = ProteinEncoder.from_file(
+        emb_file=proteins_path.joinpath("protein_embeddings_full_24_12.pt"),
+        entity_to_id=proteins_path.joinpath("biokg_uniprot_complete_ids.json"))
 
     pair_encoder = EntityPairEncoder(
         left_encoder=mol_encoder, right_encoder=prot_encoder)
     return pair_encoder
 
 
-def KGEMPairEncoder(model_dir, device = "cpu", entities = None) -> EntityPairEncoder:
+def KGEMPairEncoder(model_dir: Path, device: str = "cpu", entities: List[str] = None) -> EntityPairEncoder:
     model_dir = Path(model_dir)
     model_file = model_dir.joinpath("trained_model.pkl")
 
@@ -297,19 +291,18 @@ def KGEMPairEncoder(model_dir, device = "cpu", entities = None) -> EntityPairEnc
     return pair_encoder
 
 
-def get_encoder(encoder_label, encoder_args, entities):
+def get_encoder(encoder_label: str, encoder_args: Dict[str, dict], entities: List[str]):
     if encoder_label == NOISE:
         return RandomNoisePairEncoder(entities=entities, **encoder_args)
     elif encoder_label == STRUCTURAL:
         return StructuralPairEncoder(**encoder_args)
     elif encoder_label in {COMPLEX, TRANSE, ROTATE}:
         return KGEMPairEncoder(**encoder_args)
-    
+
 
 #
 # Building script
 #
-
 
 
 @dataclass
@@ -342,16 +335,17 @@ def save_features(outdir, label, feature):
     torch.save(feature, outfile)
 
 
-def build_encodings(config, pairs, encoders, encoder_args, encoded_bm, entities_filter) -> Tuple[str, Tensor, Tensor]:
+def build_encodings(config, pairs, encoders, encoder_args, entities_filter) -> Tuple[str, Tensor, Tensor]:
     encoded_bm = []
-    for encoder_i_label in tqdm(encoders, desc=f"encoding benchmarks..."):
-        logger.info(f"encoding with {encoder_i_label}")
+    for encoder_i_label in tqdm(encoders, desc=f"Encoding benchmarks..."):
+        logger.info(f"Encoding with {encoder_i_label}")
         encoder_i_args = encoder_args.get(encoder_i_label)
-        pair_encoder = get_encoder(encoder_i_label, encoder_i_args, entities=entities_filter)
+        pair_encoder = get_encoder(
+            encoder_i_label, encoder_i_args, entities=entities_filter)
 
         missing_value_method = MissingValueMethod(config.missing_values)
 
-        encoded_pairs, encoded_mask = pair_encoder.encode(pairs, 
+        encoded_pairs, encoded_mask = pair_encoder.encode(pairs,
                                                           missing_value=missing_value_method,
                                                           transform=config.transform)
 
@@ -360,7 +354,7 @@ def build_encodings(config, pairs, encoders, encoder_args, encoded_bm, entities_
 
 
 def apply_common_mask(encoded_bm) -> Tuple[str, Tensor]:
-    logger.info("masking features...")
+    logger.info("Masking features...")
 
     all_masks = [x[2] for x in encoded_bm]
     common_mask = torch.from_numpy(reduce(np.intersect1d, all_masks))
@@ -374,52 +368,52 @@ def apply_common_mask(encoded_bm) -> Tuple[str, Tensor]:
     return masked_encoded_bm
 
 
-def main(bm_file: str, conf: str, override_data_root = None):
-
+def main(bm_file: str, conf: str, override_data_root=None):
 
     config = parse_feature_conf(conf)
-    
+
     if override_data_root is not None:
         config.update({"data_root": Path(override_data_root)})
 
     config = FeatureConfig(**config)
 
-    print(config)
-
     timestamp = str(int(time()))
-
+    logger.info(
+        f"Running process with config: {config} at time {timestamp}...")
 
     # load benchmark data
     # here entities are labels
 
     bm_df = pd.read_csv(bm_file, sep='\t', names=[
                         COL_SOURCE, COL_EDGE, COL_TARGET, "label"], header=0)
-    logger.info(bm_df.head())
 
     pairs = bm_df[[COL_SOURCE, COL_TARGET]].values
     all_entities = np.unique(np.ravel(pairs)).tolist()
 
     # perform encodings
 
-    encoded_bm = build_encodings(config=config, pairs=pairs, encoders=config.encoders, 
+    encoded_bm = build_encodings(config=config, pairs=pairs, encoders=config.encoders,
                                  encoder_args=config.encoder_args, entities_filter=all_entities)
-
 
     # common mask only when dropping missing embeddings
     if config.missing_values == MissingValueMethod.DROP.value:
-    masked_encoded_bm = apply_common_mask(encoded_bm)
+        masked_encoded_bm = apply_common_mask(encoded_bm)
+    else:
+        masked_encoded_bm = [(x[0], x[1]) for x in encoded_bm]
 
-    
     logger.info("saving features...")
 
-    feature_outdir = Path(config.data_root).joinpath(config.experiment_root).joinpath(timestamp)
+    feature_outdir = Path(config.data_root).joinpath(
+        config.experiment_root).joinpath(timestamp)
     feature_outdir.mkdir(parents=True, exist_ok=True)
 
     for enc_label, enc_pairs in masked_encoded_bm:
+        logger.info(
+            f"Saving {enc_label} features with shape: {enc_pairs.shape}")
         save_features(outdir=feature_outdir,
                       label=enc_label,
                       feature=enc_pairs)
-    
+
 
 def get_parser() -> ArgumentParser:
     parser = ArgumentParser(
@@ -432,7 +426,8 @@ def get_parser() -> ArgumentParser:
     # parser.add_argument("--complex", type=str, help="Path to complex data")
     # parser.add_argument("--transe", type=str, help="Path to transe data")
     # parser.add_argument("--rotate", type=str, help="Path to rotate data")
-    parser.add_argument("--override_data_root", type=str, help="Path to root of data tree")
+    parser.add_argument("--override_data_root", type=str,
+                        help="Path to root of data tree")
 
     return parser
 
