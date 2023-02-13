@@ -7,7 +7,7 @@ import numpy as np
 
 from abc import ABC, abstractmethod
 from argparse import ArgumentParser
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from functools import reduce
 
 from torch import nn
@@ -69,6 +69,14 @@ def load_toml(toml_path: str) -> dict:
 
     return config
 
+
+class FeatureConfigJSONEncoder(json.JSONEncoder):
+    def default(self, obj):
+        # add conditional logic for any data structures that require special care
+        # handling serialisation of Enum objects
+        if isinstance(obj, Path):
+            return str(obj.resolve())
+        return json.JSONEncoder.default(self, obj)
 
 #
 # Entity encoders to encode single entity type
@@ -353,6 +361,7 @@ def save_features(outdir: Path, label: str, feature: Tensor, labels: Tensor):
 def build_encodings(config: FeatureConfig, pairs: np.array, encoders: List[str], 
                     encoder_args: Dict[str, dict], entities_filter: List[str]) -> Tuple[str, Tensor, Tensor]:
     encoded_bm = []
+
     for encoder_i_label in tqdm(encoders, desc=f"Encoding benchmarks..."):
         logger.info(f"Encoding with {encoder_i_label}")
         encoder_i_args = encoder_args.get(encoder_i_label)
@@ -387,7 +396,7 @@ def apply_common_mask(encoded_bm: List[Tuple[str, Tensor, Tensor]], labels: Tens
     return masked_encoded_bm, masked_labels
 
 
-def main(bm_file: str, conf: str, override_data_root=None):
+def main(bm_file: str, conf: str, override_data_root=None, override_timestamp=None):
 
     config = parse_feature_conf(conf)
 
@@ -396,7 +405,7 @@ def main(bm_file: str, conf: str, override_data_root=None):
 
     config = FeatureConfig(**config)
 
-    timestamp = str(int(time()))
+    timestamp = override_timestamp or str(int(time()))
     logger.info(
         f"Running process with config: {config} at time {timestamp}...")
 
@@ -414,6 +423,9 @@ def main(bm_file: str, conf: str, override_data_root=None):
     # perform encodings
     encoded_bm = build_encodings(config=config, pairs=pairs, encoders=config.encoders,
                                  encoder_args=config.encoder_args, entities_filter=all_entities)
+
+    # add plain benchmark data too
+    encoded_bm.append(("raw", pairs, np.arange(len(pairs))))
 
     # common mask only when dropping missing embeddings
     if config.missing_values == MissingValueMethod.DROP.value:
@@ -436,6 +448,9 @@ def main(bm_file: str, conf: str, override_data_root=None):
                       feature=enc_pairs,
                       labels=masked_labels)
 
+    with open(feature_outdir.joinpath("config.json"), "w") as f:
+        cfg_dict = asdict(config)
+        json.dump(cfg_dict, f, cls=FeatureConfigJSONEncoder)
 
 def get_parser() -> ArgumentParser:
     parser = ArgumentParser(
@@ -449,6 +464,8 @@ def get_parser() -> ArgumentParser:
     # parser.add_argument("--transe", type=str, help="Path to transe data")
     # parser.add_argument("--rotate", type=str, help="Path to rotate data")
     parser.add_argument("--override_data_root", type=str,
+                        help="Path to root of data tree")
+    parser.add_argument("--override_timestamp", type=str,
                         help="Path to root of data tree")
 
     return parser
