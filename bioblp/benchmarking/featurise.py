@@ -26,17 +26,29 @@ from bioblp.logging import get_logger
 
 logger = get_logger(__name__)
 
+
+#
+# Constants
+#
+
+
 NOISE = "noise"
 STRUCTURAL = "structural"
 COMPLEX = "complex"
 TRANSE = "transe"
 ROTATE = "rotate"
+LABEL = "label"
 
 
 class MissingValueMethod(Enum):
     DROP = "drop"
     MEAN = "mean"
     RANDOM = "random"
+
+
+#
+# Helpers
+#
 
 
 def get_random_tensor(shape, random_seed: int = 42, emb_range=(-1, 1)) -> Tensor:
@@ -57,6 +69,7 @@ def load_toml(toml_path: str) -> dict:
 
     return config
 
+
 #
 # Entity encoders to encode single entity type
 #
@@ -73,7 +86,6 @@ class EntityEncoder(ABC):
         self._emb_dim = self.embeddings.size(1)
         self._emb_mean = torch.mean(self.embeddings, dim=0)
         self._missing_value_cache = {}
-
 
     def impute_missing_value(self, x, missing_value: MissingValueMethod) -> Tensor:
         """can be {'drop', 'random', 'mean'}
@@ -211,8 +223,9 @@ class KGEMEncoder(EntityEncoder):
 
         return cls(embeddings=embs, entity_to_id=entity_to_idx)
 
+
 #
-# Pair encoders to encode entity pairs
+# Entity pair encoders
 #
 
 
@@ -330,12 +343,15 @@ def parse_feature_conf(conf_path) -> dict:
     return feat_config
 
 
-def save_features(outdir, label, feature):
+def save_features(outdir: Path, label: str, feature: Tensor, labels: Tensor):
     outfile = outdir.joinpath(f"{label}.pt")
-    torch.save(feature, outfile)
+
+    torch_obj = {"X": feature, "y": labels}
+    torch.save(torch_obj, outfile)
 
 
-def build_encodings(config, pairs, encoders, encoder_args, entities_filter) -> Tuple[str, Tensor, Tensor]:
+def build_encodings(config: FeatureConfig, pairs: np.array, encoders: List[str], 
+                    encoder_args: Dict[str, dict], entities_filter: List[str]) -> Tuple[str, Tensor, Tensor]:
     encoded_bm = []
     for encoder_i_label in tqdm(encoders, desc=f"Encoding benchmarks..."):
         logger.info(f"Encoding with {encoder_i_label}")
@@ -353,7 +369,7 @@ def build_encodings(config, pairs, encoders, encoder_args, entities_filter) -> T
     return encoded_bm
 
 
-def apply_common_mask(encoded_bm) -> Tuple[str, Tensor]:
+def apply_common_mask(encoded_bm: List[Tuple[str, Tensor, Tensor]], labels: Tensor) -> Tuple[List[Tuple[str, Tensor]], Tensor]:
     logger.info("Masking features...")
 
     all_masks = [x[2] for x in encoded_bm]
@@ -365,7 +381,10 @@ def apply_common_mask(encoded_bm) -> Tuple[str, Tensor]:
     for enc_label, enc_pairs, _ in encoded_bm:
         masked_enc_pairs = enc_pairs[common_mask]
         masked_encoded_bm.append((enc_label, masked_enc_pairs))
-    return masked_encoded_bm
+
+    masked_labels = labels[common_mask]
+
+    return masked_encoded_bm, masked_labels
 
 
 def main(bm_file: str, conf: str, override_data_root=None):
@@ -382,26 +401,28 @@ def main(bm_file: str, conf: str, override_data_root=None):
         f"Running process with config: {config} at time {timestamp}...")
 
     # load benchmark data
-    # here entities are labels
+    # here entities are strings
 
     bm_df = pd.read_csv(bm_file, sep='\t', names=[
-                        COL_SOURCE, COL_EDGE, COL_TARGET, "label"], header=0)
+                        COL_SOURCE, COL_EDGE, COL_TARGET, LABEL], header=0)
 
     pairs = bm_df[[COL_SOURCE, COL_TARGET]].values
     all_entities = np.unique(np.ravel(pairs)).tolist()
 
-    # perform encodings
+    labels = torch.from_numpy(bm_df[LABEL].values)
 
+    # perform encodings
     encoded_bm = build_encodings(config=config, pairs=pairs, encoders=config.encoders,
                                  encoder_args=config.encoder_args, entities_filter=all_entities)
 
     # common mask only when dropping missing embeddings
     if config.missing_values == MissingValueMethod.DROP.value:
-        masked_encoded_bm = apply_common_mask(encoded_bm)
+        masked_encoded_bm, masked_labels = apply_common_mask(encoded_bm, labels)
     else:
         masked_encoded_bm = [(x[0], x[1]) for x in encoded_bm]
+        masked_labels = labels
 
-    logger.info("saving features...")
+    logger.info("Saving features...")
 
     feature_outdir = Path(config.data_root).joinpath(
         config.experiment_root).joinpath(timestamp)
@@ -412,7 +433,8 @@ def main(bm_file: str, conf: str, override_data_root=None):
             f"Saving {enc_label} features with shape: {enc_pairs.shape}")
         save_features(outdir=feature_outdir,
                       label=enc_label,
-                      feature=enc_pairs)
+                      feature=enc_pairs,
+                      labels=masked_labels)
 
 
 def get_parser() -> ArgumentParser:
