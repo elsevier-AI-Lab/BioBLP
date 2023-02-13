@@ -10,7 +10,7 @@ kg_triples_dir = "data/benchmarks/backbone_kg/"
 [features]
 outdir = "features"
 transform = "concat"
-missing_values = "random"
+missing_values = "drop"
 encoders = ["noise", "structural", "complex", "rotate"]
 
 
