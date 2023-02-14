@@ -79,7 +79,7 @@ def load_toml(toml_path: str) -> dict:
 def parse_train_config(toml_path: str) -> dict:
     conf = load_toml(toml_path=toml_path)
     cfg = {}
-    
+
     cfg["models"] = conf.get("models")
 
     cfg.update(conf.get("train"))
@@ -456,7 +456,8 @@ def run_nested_cv(models: Dict[str, dict],
         for fold_i, (train_idx, test_idx) in enumerate(outer_cv.split(X, y)):
 
             # load feature set
-            X_feat, y_feat = load_feature_data(feature_dir.joinpath(f"{model_feature}.pt"))
+            X_feat, y_feat = load_feature_data(
+                feature_dir.joinpath(f"{model_feature}.pt"))
 
             # generate study name based on model, fold and some random word
             study_name = generate_study_name(study_prefix, name, fold_i)
@@ -607,14 +608,13 @@ def run(args):
     conf_dict = parse_train_config(conf_path)
 
     conf = NestedCVArguments(**conf_dict)
-    
+
     out_root = Path(conf.experiment_root).joinpath(str(run_timestamp))
     models_out = out_root.joinpath(conf.outdir)
-
+    models_out.mkdir(parents=True, exist_ok=True)
 
     exp_output = defaultdict(dict)
     exp_output["config"] = asdict(conf)
-
 
     ############
     # Setup classifiers & pipelines
