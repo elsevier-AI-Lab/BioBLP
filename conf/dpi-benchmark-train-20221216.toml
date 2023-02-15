@@ -11,7 +11,7 @@ kg_triples_dir = "data/benchmarks/backbone_kg/"
 outdir = "features"
 transform = "concat"
 missing_values = "random"
-encoders = ["noise", "structural", "complex", "rotate"]
+encoders = ["structural", "complex", "rotate", "noise"]
 
 
 [features.encoder_args.noise]
@@ -81,9 +81,9 @@ feature = "rotate"
 model = "MLP"
 
 [train]
-n_iter = 2
-inner_n_folds = 2
-outer_n_folds = 2
+n_iter = 3
+inner_n_folds = 3
+outer_n_folds = 5
 shuffle = true
 refit_params = ["AUCPR", "AUCROC"]
 outdir = "models"

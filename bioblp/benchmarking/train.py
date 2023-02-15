@@ -37,6 +37,7 @@ from collections import defaultdict
 from sklearn.model_selection import StratifiedKFold
 from sklearn.model_selection import RandomizedSearchCV
 from sklearn.model_selection import cross_validate
+from sklearn.model_selection import train_test_split
 from skorch import NeuralNet
 from skorch import NeuralNetClassifier
 
@@ -147,7 +148,7 @@ class FileResultTracker():
 
 
 class CVObjective(abc.ABC):
-    def __init__(self, X_train, y_train, cv, scoring, refit_params, run_id: Union[str, None] = None):
+    def __init__(self, X_train, y_train, cv, scoring, refit_params, run_id: Union[str, None] = None, n_jobs: int = -1):
         self.best_model = None
         self._model = None
 
@@ -157,6 +158,7 @@ class CVObjective(abc.ABC):
         self.scoring = scoring
         self.refit_params = refit_params
         self.run_id = run_id
+        self.n_jobs = n_jobs
 
     def _clf_objective(self, trial):
         raise NotImplementedError
@@ -176,7 +178,7 @@ class CVObjective(abc.ABC):
             y=self.y_train,
             scoring=self.scoring,
             cv=self.cv,
-            n_jobs=-1,
+            n_jobs=self.n_jobs,
             return_estimator=False,
             return_train_score=True,
             verbose=14,
@@ -350,21 +352,22 @@ class MLPObjective(CVObjective):
         return clf_obj
 
 
-def create_cv_objective(name, X_train, y_train, scoring, cv,
-                        refit_params=["AUCPR", "AUCROC"], run_id: Union[str, None] = None):
+def create_cv_objective(name, X_train, y_train, scoring, cv, refit_params=["AUCPR", "AUCROC"],
+                        run_id: Union[str, None] = None, n_jobs: int = -1):
     if "LR" in name:
         return LRObjective(X_train=X_train, y_train=y_train, scoring=scoring, cv=cv,
-                           refit_params=refit_params, run_id=run_id)
+                           refit_params=refit_params, run_id=run_id, n_jobs=n_jobs)
     elif "RF" in name:
 
         return RFObjective(X_train=X_train, y_train=y_train, scoring=scoring, cv=cv,
-                           refit_params=refit_params, run_id=run_id)
+                           refit_params=refit_params, run_id=run_id, n_jobs=n_jobs)
     elif "MLP" in name:
 
         return MLPObjective(X_train=torch.tensor(X_train, dtype=torch.float32),
                             y_train=torch.tensor(
                                 y_train, dtype=torch.float32).unsqueeze(1),
-                            scoring=scoring, cv=cv, refit_params=refit_params, epochs=200, run_id=run_id)
+                            scoring=scoring, cv=cv, refit_params=refit_params, epochs=200,
+                            run_id=run_id, n_jobs=n_jobs)
 
 
 def transform_model_inputs(X, y, model_name: str):
@@ -386,7 +389,7 @@ def run_nested_cv(models: Dict[str, dict],
                   inner_n_iter: int = 10,
                   shuffle: bool = False,
                   random_state: int = SEED,
-                  n_jobs: int = 1,
+                  n_jobs: int = -1,
                   refit_params: list = ["AUCPR", "AUCROC"],
                   verbose: int = 14,
                   outdir: Path = None,
@@ -475,17 +478,26 @@ def run_nested_cv(models: Dict[str, dict],
                 cv=inner_cv,
                 scoring=scoring,
                 refit_params=refit_params,
-                run_id=study_name
+                run_id=study_name,
+                n_jobs=n_jobs
             )
 
             # set calbacks
-            tags = [study_name, study_prefix, name]
+            tags = [study_name, study_prefix, name, model_feature]
             if wandb_tag is not None:
                 tags.append(wandb_tag)
 
             wandb_kwargs = {"project": "bioblp-dpi",
                             "entity": "discoverylab",
-                            "tags": tags}
+                            "tags": tags,
+                            "config": {
+                                "model_feature": model_feature,
+                                "model_clf": model_clf,
+                                "model_name": name,
+                                "study_prefix": study_prefix,
+                                "fold_idx": fold_i
+                            }
+                            }
 
             wandb_callback = WeightsAndBiasesCallback(
                 metric_name=refit_params, wandb_kwargs=wandb_kwargs, as_multirun=True)
@@ -523,13 +535,20 @@ def run_nested_cv(models: Dict[str, dict],
             logger.info(
                 f"Refitting model {name} with best params: {trial_with_highest_AUCPR.params}...")
 
-            wandb_kwargs["tags"].append("best")
-            wandb.init(
-                **wandb_kwargs, config=trial_with_highest_AUCPR.params)
-
+            # construct model from best params
             best_params_i = trial_with_highest_AUCPR.params
             model = objective.model_init(**best_params_i)
-            outer_scores[name]["params"].append(best_params_i)
+
+            # get params and store
+            model_params = objective._get_params_for(model)
+            outer_scores[name]["params"].append(model_params)
+
+            # register settings in wandb
+            wandb_kwargs["tags"].append("best")
+            wandb.init(**wandb_kwargs)
+
+            wandb_kwargs.update({"config": model_params})
+            wandb.config.update(wandb_kwargs["config"])
 
             # torch tensor transform if MLP else return same
             X_t, y_t = transform_model_inputs(X_feat, y_feat, model_name=name)
@@ -567,7 +586,7 @@ def run_nested_cv(models: Dict[str, dict],
     return outer_scores
 
 
-def load_feature_data(feat_path: Union[str, Path]) -> Tuple[np.array, np.array]:
+def load_feature_data(feat_path: Union[str, Path], dev_run: bool = False) -> Tuple[np.array, np.array]:
 
     ############
     # Load data
@@ -580,8 +599,11 @@ def load_feature_data(feat_path: Union[str, Path]) -> Tuple[np.array, np.array]:
     y = data.get("y")
 
     if torch.is_tensor(X):
-        X = X.numpy()
-        y = y.numpy()
+        X = X.detach().numpy()
+        y = y.detach().numpy()
+
+    if dev_run:
+        X, _, y, _ = train_test_split(X, y, stratify=y, train_size=0.1)
 
     logger.info(
         "Resulting shapes X: {}, y: {}".format(
@@ -620,7 +642,8 @@ def run(args):
     # Setup classifiers & pipelines
     ############
 
-    X_bm, y_bm = load_feature_data(out_root.joinpath("raw.pt"))
+    X_bm, y_bm = load_feature_data(
+        out_root.joinpath("raw.pt"), dev_run=args.dev_run)
 
     logger.info("Config contains models {}.".format(conf.models))
 
@@ -674,6 +697,8 @@ if __name__ == "__main__":
     )
     parser.add_argument("--tag", type=str,
                         help="Optional tag to add to wand runs")
+    parser.add_argument("--dev_run", action='store_true',
+                        help="Quick dev run")
     # parser.add_argument(
     #     "--n_iter", type=int, default=2, help="Number of iterations in HPO in inner cv."
     # )
