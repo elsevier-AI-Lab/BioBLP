@@ -124,7 +124,8 @@ def run(args: Arguments):
     if any((args.protein_data, args.molecule_data, args.text_data)):
         model = BioBLP
         if args.model == 'complex':
-            def underlying_model(**kwargs): return ComplEx(**kwargs)
+            def underlying_model(**kwargs):
+                return ComplEx(**kwargs)
         elif args.model == 'rotate':
             def underlying_model(**kwargs): return RotatE(**kwargs)
         elif args.model == 'transe':
@@ -189,14 +190,14 @@ def run(args: Arguments):
                           'larger_is_better': True
                       },
                       evaluator_kwargs={'batch_size': args.eval_batch_size},
-                      result_tracker=None,
-                      result_tracker_kwargs={
-                          'entity': 'discoverylab',
-                          'project': 'bioblp',
-                          'notes': args.notes,
-                          'config': cli_args_dict,
-                          'offline': not args.log_wandb
-                      }
+                      # result_tracker='wandb',
+                      # result_tracker_kwargs={
+                      #     'entity': 'discoverylab',
+                      #     'project': 'bioblp',
+                      #     'notes': args.notes,
+                      #     'config': cli_args_dict,
+                      #     'offline': not args.log_wandb
+                      # }
                       )
 
     result.save_to_directory(osp.join('models', BioBLPCallback.id))

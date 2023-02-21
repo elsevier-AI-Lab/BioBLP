@@ -1,7 +1,7 @@
 import os.path as osp
 from typing import Optional, Callable, Any
-
 from pykeen.models import ERModel, RotatE
+from pykeen.nn.modules import Interaction, RotatEInteraction, ComplExInteraction, TransEInteraction
 from pykeen.nn.representation import Embedding as PyKEmbedding
 from pykeen.typing import InductiveMode
 import torch
@@ -15,8 +15,14 @@ class BioBLP(ERModel):
                  entity_representations: PropertyEncoderRepresentation,
                  from_checkpoint: str = None,
                  **kwargs):
-        super().__init__(**kwargs)
-        self.delegate = underlying_model(**kwargs)
+        print("test")
+        delegate = underlying_model(**kwargs)
+
+        super().__init__(triples_factory=kwargs['triples_factory'],
+                         interaction=delegate.interaction)
+
+        self.delegate = delegate
+
         self.delegate.score_hrt_and_negatives = BioBLP.score_hrt_and_negatives
 
         self.from_checkpoint = from_checkpoint
@@ -33,15 +39,18 @@ class BioBLP(ERModel):
             (reset_parameters_, score_hrt_and_negatives)
         Parameters
         ----------
-        item: method name
+        item: attr name
         Returns either BioBLP (ours) or delegates to the ERModel counterpart (TransE, RotatE, CompleX)
         -------
 
         """
-        if item in {"reset_parameters_" , "score_hrt_and_negatives", "delegate"}:
-            return object.__getattribute__(self, item)
-        else:
-            return self.delegate.__getattribute__(item)
+        # print(f'im in {item}')
+        # if item in {"reset_parameters_" , "score_hrt_and_negatives", "delegate"}:
+        #     return object.__getattribute__(self, item)
+        # else:
+        #     return self.delegate.__getattribute__(item)
+
+        return object.__getattribute__(self, item)
 
     def reset_parameters_(self):
         super().reset_parameters_()
@@ -97,8 +106,7 @@ class BioBLP(ERModel):
 
         return positive_scores, negative_scores
 
-
-# # TODO: Generalize to other models
+# # # TODO: Generalize to other models
 # class BioBLP(RotatE):
 #     def __init__(self, *,
 #                  entity_representations: PropertyEncoderRepresentation,
