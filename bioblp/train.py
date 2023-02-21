@@ -3,11 +3,13 @@ import os.path as osp
 from pykeen.pipeline import pipeline
 from pykeen.training import TrainingCallback
 from pykeen.triples import TriplesFactory
+from pykeen.models import RotatE, ComplEx, TransE
+
 from tap import Tap
 from transformers import get_linear_schedule_with_warmup
 import wandb
 
-from bioblp.logging import get_logger
+from bioblp.logger import get_logger
 from bioblp.models import BioBLP
 from bioblp.utils.bioblp_utils import build_encoders
 from bioblp.utils.training import InBatchNegativesTraining
@@ -38,6 +40,7 @@ class Arguments(Tap):
     in_batch_negatives: bool = False
     add_inverses: bool = False
     early_stopper: str = 'both.realistic.inverse_harmonic_mean_rank'
+    from_checkpoint: str = None
 
     search_train_batch_size: bool = False
     search_eval_batch_size: bool = False
@@ -86,9 +89,19 @@ def run(args: Arguments):
     logger = get_logger()
     logger.info('Loading triples...')
 
+    entity_to_id = relation_to_id = None
+    if args.from_checkpoint:
+        checkpoint_triples = TriplesFactory.from_path_binary(
+            osp.join(args.from_checkpoint, 'training_triples')
+        )
+        entity_to_id = checkpoint_triples.entity_to_id
+        relation_to_id = checkpoint_triples.relation_to_id
+
     training = TriplesFactory.from_path(
         args.train_triples,
-        create_inverse_triples=args.add_inverses
+        create_inverse_triples=args.add_inverses,
+        entity_to_id=entity_to_id,
+        relation_to_id=relation_to_id
     )
     validation = TriplesFactory.from_path(args.valid_triples,
                                           entity_to_id=training.entity_to_id,
@@ -110,15 +123,29 @@ def run(args: Arguments):
 
     if any((args.protein_data, args.molecule_data, args.text_data)):
         model = BioBLP
+        if args.model == 'complex':
+            def underlying_model(**kwargs): return ComplEx(**kwargs)
+        elif args.model == 'rotate':
+            def underlying_model(**kwargs): return RotatE(**kwargs)
+        elif args.model == 'transe':
+            def underlying_model(**kwargs): return TransE(**kwargs)
+        else:
+            raise Exception(f"Unknown model f{args.model}")
+        model_kwargs["underlying_model"] = underlying_model
         dimension = args.dimension
         if args.model in ('complex', 'rotate'):
             dimension *= 2
+        else:
+            raise Exception("Should TransE have double dims?")
         encoders = build_encoders(dimension,
                                   training.entity_to_id,
                                   args.protein_data,
                                   args.molecule_data,
                                   args.text_data)
         model_kwargs['entity_representations'] = encoders
+
+        if args.from_checkpoint:
+            model_kwargs['from_checkpoint'] = args.from_checkpoint
 
     if args.warmup_fraction:
         if args.batch_size is None:
@@ -162,7 +189,7 @@ def run(args: Arguments):
                           'larger_is_better': True
                       },
                       evaluator_kwargs={'batch_size': args.eval_batch_size},
-                      result_tracker='wandb',
+                      result_tracker=None,
                       result_tracker_kwargs={
                           'entity': 'discoverylab',
                           'project': 'bioblp',

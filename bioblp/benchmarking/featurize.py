@@ -12,7 +12,7 @@ import time
 import torch
 from typing import Union
 
-from bioblp.logging import get_logger
+from bioblp.logger import get_logger
 from bioblp.data import COL_EDGE, COL_SOURCE, COL_TARGET
 from bioblp.benchmarking.embeddings import LookupEmbedding, create_noise_embeddings
 pd.options.mode.chained_assignment = None 

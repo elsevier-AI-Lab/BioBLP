@@ -1,6 +1,6 @@
 from pathlib import Path
 import pandas as pd
-from bioblp.logging import get_logger
+from bioblp.logger import get_logger
 from pykeen.triples import TriplesFactory
 
 #logger = get_logger(__name__)

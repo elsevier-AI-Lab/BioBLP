@@ -7,7 +7,7 @@ from pykeen.triples import TriplesFactory
 from typing import Union
 import torch
 
-from bioblp.logging import get_logger
+from bioblp.logger import get_logger
 from bioblp.data import COL_EDGE, COL_SOURCE, COL_TARGET
 
 

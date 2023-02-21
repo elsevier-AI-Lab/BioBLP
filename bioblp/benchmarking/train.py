@@ -39,7 +39,7 @@ from skorch import NeuralNetClassifier
 from typing import Union
 
 from bioblp.data import COL_EDGE, COL_SOURCE, COL_TARGET
-from bioblp.logging import get_logger
+from bioblp.logger import get_logger
 
 
 logger = get_logger(__name__)
