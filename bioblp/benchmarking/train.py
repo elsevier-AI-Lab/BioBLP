@@ -6,6 +6,7 @@ import numpy as np
 import random as rn
 import pandas as pd
 import abc
+import toml
 
 import wandb
 
@@ -15,6 +16,8 @@ from pathlib import Path
 from time import time
 from collections import defaultdict
 from optuna.integration.wandb import WeightsAndBiasesCallback
+from dataclasses import dataclass
+from dataclasses import field
 
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
@@ -48,6 +51,24 @@ logger = get_logger(__name__)
 SEED = 42
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+
+@dataclass
+class NestedCVArguments():
+    data_root: str
+    features: dict
+    models: dict
+    n_iter: int = field(default=2, metadata={"help": "Stuff"})
+    inner_n_folds: int = field(default=3)
+    outer_n_folds: int = field(default=3)
+
+    @classmethod
+    def from_toml(cls, toml_path: Union[str, Path]):
+        conf = {}
+        with open(Path(toml_path), "r") as f:
+            conf = toml.load(f)
+
+        return cls(**conf)
 
 
 def get_random_string(length):
@@ -506,33 +527,39 @@ def run_nested_cv(candidates: list,
     return outer_scores
 
 
+def load_feature_data(feat_path: Union[str, Path]) -> (np.array, np.array):
+
+    ############
+    # Load data
+    ############
+    logger.info("Loading training data...")
+
+    X = np.load(data_dir.joinpath("X.npy"))
+    y = np.load(data_dir.joinpath("y.npy"))
+
+    logger.info(
+        "Resulting shapes X: {}, y: {}".format(
+            X.shape, y.shape)
+    )
+    logger.info("Counts in y: {}".format(
+        np.unique(y, return_counts=True)))
+
+    return X, y
+
+
 def run(args):
     """Perform train run"""
 
     # reproducibility
     # SEED is set as global
-    shuffle = True
-    refit_params = ["AUCPR", "AUCROC"]
 
-    out_dir = Path(args.outdir)
-    data_dir = Path(args.data_dir)
+    conf_path = Path(args.conf)
+    outdir = Path(args.outdir)
 
-    n_proc = args.n_proc
-    n_iter = args.n_iter
-    inner_n_folds = args.inner_n_folds
-    outer_n_folds = args.outer_n_folds
-    candidates = args.candidate_algo_list
+    conf = NestedCVArguments.from_toml(conf_path)
 
     exp_output = defaultdict(dict)
-    exp_output["config"] = {
-        "n_proc": n_proc,
-        "n_iter": n_iter,
-        "inner_n_folds": inner_n_folds,
-        "outer_n_folds": outer_n_folds,
-        "data_dir": data_dir,
-        "seed": SEED,
-        "shuffle": shuffle
-    }
+    exp_output["config"] = asdict(conf)
 
     start = time()
     run_timestamp = int(start)
@@ -540,54 +567,26 @@ def run(args):
     logger.info("Starting model building script at {}.".format(start))
 
     ############
-    # Load data
-    ############
-    logger.info("Loading training data...")
-
-    X_train = np.load(data_dir.joinpath("X.npy"))
-    y_train = np.load(data_dir.joinpath("y.npy"))
-
-    logger.info(
-        "Resulting shapes X_train: {}, y_train: {}".format(
-            X_train.shape, y_train.shape)
-    )
-    logger.info("Counts in y_train: {}".format(
-        np.unique(y_train, return_counts=True)))
-
-    ############
     # Setup classifiers & pipelines
     ############
 
-    lr_label = "LR"
-    rf_label = "RF"
-    MLP_label = "MLP"
-
-    ############
-    # Compare models
-    ############
-    
-    #candidates = [
-    #    lr_label,
-        # rf_label,
-        # MLP_label
-
-    #]
+    logger.info("Config contains models {}.".format(conf.models))
 
     scorer = get_scorers()
 
     nested_cv_scores = run_nested_cv(
-        candidates=candidates,
+        candidates=conf.models,
         X=X_train,
         y=y_train,
         scoring=scorer,
-        inner_n_folds=inner_n_folds,
-        inner_n_iter=n_iter,
-        outer_n_folds=outer_n_folds,
-        shuffle=shuffle,
-        n_jobs=n_proc,
-        refit_params=refit_params,
+        inner_n_folds=conf.inner_n_folds,
+        inner_n_iter=conf.n_iter,
+        outer_n_folds=conf.outer_n_folds,
+        shuffle=conf.shuffle,
+        n_jobs=conf.n_proc,
+        refit_params=conf.refit_params,
         random_state=SEED,
-        outdir=out_dir,
+        outdir=outdir,
         timestamp=run_timestamp
     )
 
@@ -610,24 +609,21 @@ def run(args):
 
 if __name__ == "__main__":
     parser = ArgumentParser(description="Run model training procedure")
-    parser.add_argument("--data_dir", type=str,
-                        help="Path to pick up featurised data")
+    parser.add_argument("--conf", type=str,
+                        help="Path to experiment configuration")
     parser.add_argument("--outdir", type=str, help="Path to write output")
-    parser.add_argument(
-        "--n_proc", type=int, default=1, help="Number of cores to use in process."
-    )
-    parser.add_argument(
-        "--n_iter", type=int, default=2, help="Number of iterations in HPO in inner cv."
-    )
-    parser.add_argument(
-        "--inner_n_folds", type=int, default=3, help="Folds to use in inner CV"
-    )
-    parser.add_argument(
-        "--outer_n_folds", type=int, default=3, help="Folds to use in outer CV"
-    )
-    parser.add_argument(
-        "--candidate_algo_list", nargs='+', default='MLP', help="train b/w 'LR', 'RF', 'MLP' "
-    )
+    # parser.add_argument(
+    #     "--n_proc", type=int, default=1, help="Number of cores to use in process."
+    # )
+    # parser.add_argument(
+    #     "--n_iter", type=int, default=2, help="Number of iterations in HPO in inner cv."
+    # )
+    # parser.add_argument(
+    #     "--inner_n_folds", type=int, default=3, help="Folds to use in inner CV"
+    # )
+    # parser.add_argument(
+    #     "--outer_n_folds", type=int, default=2, help="Folds to use in outer CV"
+    # )
 
     args = parser.parse_args()
     run(args)

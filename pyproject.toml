@@ -15,6 +15,7 @@ torch = "^1.11.0"
 scikit-learn = "^1.1.0"
 skorch = "^0.11.0"
 optuna = "3.0.1"
+dill = "^0.3.6"
 
 [tool.poetry.dev-dependencies]
 
