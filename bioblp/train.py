@@ -10,7 +10,7 @@ from transformers import get_linear_schedule_with_warmup
 import wandb
 
 from bioblp.logger import get_logger
-from bioblp.models import BioBLP
+from bioblp.models import BioBLPR, BioBLPC, BioBLPT
 from bioblp.utils.bioblp_utils import build_encoders
 from bioblp.utils.training import InBatchNegativesTraining
 
@@ -122,22 +122,19 @@ def run(args: Arguments):
     model_kwargs = {'embedding_dim': args.dimension, 'loss': args.loss_fn}
 
     if any((args.protein_data, args.molecule_data, args.text_data)):
-        model = BioBLP
         if args.model == 'complex':
-            def underlying_model(**kwargs):
-                return ComplEx(**kwargs)
+            model = BioBLPC
         elif args.model == 'rotate':
-            def underlying_model(**kwargs): return RotatE(**kwargs)
+            model = BioBLPR
         elif args.model == 'transe':
-            def underlying_model(**kwargs): return TransE(**kwargs)
+            model = BioBLPT
         else:
             raise Exception(f"Unknown model f{args.model}")
-        model_kwargs["underlying_model"] = underlying_model
+
         dimension = args.dimension
         if args.model in ('complex', 'rotate'):
             dimension *= 2
-        else:
-            raise Exception("Should TransE have double dims?")
+
         encoders = build_encoders(dimension,
                                   training.entity_to_id,
                                   args.protein_data,
@@ -190,14 +187,14 @@ def run(args: Arguments):
                           'larger_is_better': True
                       },
                       evaluator_kwargs={'batch_size': args.eval_batch_size},
-                      # result_tracker='wandb',
-                      # result_tracker_kwargs={
-                      #     'entity': 'discoverylab',
-                      #     'project': 'bioblp',
-                      #     'notes': args.notes,
-                      #     'config': cli_args_dict,
-                      #     'offline': not args.log_wandb
-                      # }
+                      result_tracker='wandb',
+                      result_tracker_kwargs={
+                          'entity': 'discoverylab',
+                          'project': 'bioblp',
+                          'notes': args.notes,
+                          'config': cli_args_dict,
+                          'offline': not args.log_wandb
+                      }
                       )
 
     result.save_to_directory(osp.join('models', BioBLPCallback.id))

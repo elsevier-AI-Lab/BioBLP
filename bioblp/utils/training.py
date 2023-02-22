@@ -7,13 +7,13 @@ from pykeen.typing import InductiveMode
 from pykeen.triples.instances import SLCWABatch
 import torch
 
-from bioblp.models import BioBLP
+from bioblp.models import BioBLPR
 
 
 class InBatchNegativesTraining(SLCWATrainingLoop):
     @staticmethod
     def _process_batch_static(
-            model: BioBLP,
+            model: Model,
             loss: Loss,
             mode: Optional[InductiveMode],
             batch: SLCWABatch,

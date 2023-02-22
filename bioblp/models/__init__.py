@@ -1,1 +1,1 @@
-from .bioblp import BioBLP
+from .bioblp import BioBLPC, BioBLPT, BioBLPR
