@@ -219,8 +219,8 @@ class PropertyEncoderRepresentation(nn.Module):
 
     @staticmethod
     def encode_entities(lookup_table: PyKEmbedding,
-                        indices: Optional[torch.LongTensor],
-                        encoder_modules: 'PropertyEncoderRepresentation'
+                        encoder_modules: 'PropertyEncoderRepresentation',
+                        indices: Optional[torch.LongTensor] = None
                         ) -> Optional[torch.Tensor]:
         # This method is adapted from
         # pykeen.nn.representation.Embedding._plain_forward

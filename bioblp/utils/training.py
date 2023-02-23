@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Union
 
 from pykeen.training.slcwa import SLCWATrainingLoop
 from pykeen.models.base import Model
@@ -7,13 +7,13 @@ from pykeen.typing import InductiveMode
 from pykeen.triples.instances import SLCWABatch
 import torch
 
-from bioblp.models import BioBLPR
+from bioblp.models import BioBLP
 
 
 class InBatchNegativesTraining(SLCWATrainingLoop):
     @staticmethod
     def _process_batch_static(
-            model: Model,
+            model: Union[BioBLP, Model],
             loss: Loss,
             mode: Optional[InductiveMode],
             batch: SLCWABatch,

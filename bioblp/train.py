@@ -3,14 +3,13 @@ import os.path as osp
 from pykeen.pipeline import pipeline
 from pykeen.training import TrainingCallback
 from pykeen.triples import TriplesFactory
-from pykeen.models import RotatE, ComplEx, TransE
 
 from tap import Tap
 from transformers import get_linear_schedule_with_warmup
 import wandb
 
 from bioblp.logger import get_logger
-from bioblp.models import BioBLPR, BioBLPC, BioBLPT
+import bioblp.models as models
 from bioblp.utils.bioblp_utils import build_encoders
 from bioblp.utils.training import InBatchNegativesTraining
 
@@ -122,15 +121,7 @@ def run(args: Arguments):
     model_kwargs = {'embedding_dim': args.dimension, 'loss': args.loss_fn}
 
     if any((args.protein_data, args.molecule_data, args.text_data)):
-        if args.model == 'complex':
-            model = BioBLPC
-        elif args.model == 'rotate':
-            model = BioBLPR
-        elif args.model == 'transe':
-            model = BioBLPT
-        else:
-            raise Exception(f"Unknown model f{args.model}")
-
+        model = models.get_model_class(args.model)
         dimension = args.dimension
         if args.model in ('complex', 'rotate'):
             dimension *= 2
