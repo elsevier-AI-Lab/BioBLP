@@ -47,8 +47,7 @@ def get_parser() -> ArgumentParser:
     parser.add_argument("--conf", type=str,
                         help="Path to experiment configuration")
     parser.add_argument("--bm_file", type=str, help="Path to benchmark data")
-    parser.add_argument("--outdir", type=str, help="Path to write output")
-    parser.add_argument("--override_data_root", type=str,
+    parser.add_argument("--override_data_root", type=str, default=None,
                         help="Path to root of data tree")
     parser.add_argument(
         "--n_proc", type=int, default=-1, help="Number of cores to use in process."
