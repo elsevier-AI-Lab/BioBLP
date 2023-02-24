@@ -4,14 +4,13 @@ import string
 import optuna
 import numpy as np
 import random as rn
-import pandas as pd
 import abc
-import toml
 import joblib
 
 import wandb
 
 from torch import nn
+from torch import Tensor
 from argparse import ArgumentParser
 from dataclasses import asdict
 from pathlib import Path
@@ -37,15 +36,12 @@ from sklearn.metrics import auc
 from collections import defaultdict
 
 from sklearn.model_selection import StratifiedKFold
-from sklearn.model_selection import RandomizedSearchCV
 from sklearn.model_selection import cross_validate
 from sklearn.model_selection import train_test_split
-from skorch import NeuralNet
 from skorch import NeuralNetClassifier
 
 from typing import Union, Tuple, List, Dict
 
-from bioblp.data import COL_EDGE, COL_SOURCE, COL_TARGET
 from bioblp.logging import get_logger
 from bioblp.benchmarking.utils import load_toml
 
@@ -145,7 +141,6 @@ class CVObjective(abc.ABC):
     def __init__(self, X_train, y_train, cv, scoring, refit_params, run_id: Union[str, None] = None, n_jobs: int = -1):
         self.best_model = None
         self._model = None
-
         self.X_train = X_train
         self.y_train = y_train
         self.cv = cv
@@ -349,22 +344,53 @@ class MLPObjective(CVObjective):
 def create_cv_objective(name, X_train, y_train, scoring, cv, refit_params=["AUCPR", "AUCROC"],
                         run_id: Union[str, None] = None, n_jobs: int = -1):
     if "LR" in name:
-        return LRObjective(X_train=X_train, y_train=y_train, scoring=scoring, cv=cv,
-                           refit_params=refit_params, run_id=run_id, n_jobs=n_jobs)
+        return LRObjective(X_train=X_train,
+                           y_train=y_train,
+                           scoring=scoring,
+                           cv=cv,
+                           refit_params=refit_params,
+                           run_id=run_id,
+                           n_jobs=n_jobs)
     elif "RF" in name:
-
-        return RFObjective(X_train=X_train, y_train=y_train, scoring=scoring, cv=cv,
-                           refit_params=refit_params, run_id=run_id, n_jobs=n_jobs)
+        return RFObjective(X_train=X_train,
+                           y_train=y_train,
+                           scoring=scoring,
+                           cv=cv,
+                           refit_params=refit_params,
+                           run_id=run_id,
+                           n_jobs=n_jobs)
     elif "MLP" in name:
+        X_train, y_train = transform_model_inputs(
+            X_train, y_train, model_name=name)
+        return MLPObjective(X_train=X_train,
+                            y_train=y_train,
+                            scoring=scoring,
+                            cv=cv,
+                            refit_params=refit_params,
+                            epochs=200,
+                            run_id=run_id,
+                            n_jobs=n_jobs)
 
-        return MLPObjective(X_train=torch.tensor(X_train, dtype=torch.float32),
-                            y_train=torch.tensor(
-                                y_train, dtype=torch.float32).unsqueeze(1),
-                            scoring=scoring, cv=cv, refit_params=refit_params, epochs=200,
-                            run_id=run_id, n_jobs=n_jobs)
 
+def transform_model_inputs(X: np.array,
+                           y: np.array,
+                           model_name: str) -> Union[Tuple[np.array, np.array], Tuple[Tensor, Tensor]]:
+    """ Transform numpy to Tensor for MLP model. Needed because MLP in pytorch implementation.
 
-def transform_model_inputs(X, y, model_name: str):
+    Parameters
+    ----------
+    X : np.array
+        Feature data
+    y : np.array
+        lables
+    model_name : str
+        label for model
+
+    Returns
+    -------
+    Tuple[np.array, np.array] or  Tuple[Tensor, Tensor]
+        Tensors for MLP, numpy for others.
+    """
     if "MLP" in model_name:
         Xt = torch.tensor(X, dtype=torch.float32)
         yt = torch.tensor(y, dtype=torch.float32).unsqueeze(1)
@@ -390,8 +416,9 @@ def run_nested_cv(models: Dict[str, dict],
                   timestamp: str = None,
                   wandb_tag: str = None
                   ) -> dict:
-    """Nested cross validation routine.
-    Inner cv loop performs hp optimization on all folds and surfaces
+    """ Nested cross validation routine.
+        Inner cv loop performs hp optimization on all folds and surfaces
+
     Parameters
     ----------
     conf : NestedCVArguments
@@ -585,10 +612,20 @@ def run_nested_cv(models: Dict[str, dict],
 
 
 def load_feature_data(feat_path: Union[str, Path], dev_run: bool = False) -> Tuple[np.array, np.array]:
+    """ Load feature data into numpy arrays
 
-    ############
-    # Load data
-    ############
+    Parameters
+    ----------
+    feat_path : Union[str, Path]
+        Filepath to feature, eg 'features/rotate.pt'
+    dev_run : bool, optional
+        Flag to subsample data for development only, by default False
+
+    Returns
+    -------
+    Tuple[np.array, np.array]
+        Return (features, labels)
+    """
     logger.info("Loading training data...")
 
     data = torch.load(feat_path)
@@ -601,7 +638,8 @@ def load_feature_data(feat_path: Union[str, Path], dev_run: bool = False) -> Tup
         y = y.detach().numpy()
 
     if dev_run:
-        X, _, y, _ = train_test_split(X, y, stratify=y, train_size=0.1)
+        X, _, y, _ = train_test_split(
+            X, y, stratify=y, train_size=0.1, random_state=12)
 
     logger.info(
         "Resulting shapes X: {}, y: {}".format(
@@ -614,6 +652,20 @@ def load_feature_data(feat_path: Union[str, Path], dev_run: bool = False) -> Tup
 
 
 def validate_features_exist(feature_dir: Path, models_conf: dict) -> bool:
+    """ Check if all feature files exist in directory
+
+    Parameters
+    ----------
+    feature_dir : Path
+        Path to feature location
+    models_conf : dict
+        Definition of model and feature.
+
+    Returns
+    -------
+    bool
+        True if features are present.
+    """
     exists = {}
 
     all_features = list(set([v.get("feature")
