@@ -44,7 +44,9 @@ class MissingValueMethod(Enum):
 
 
 def get_random_tensor(shape, random_seed: int = 42, emb_range=(-1, 1)) -> Tensor:
-    """Generate random tensor, centered on mean of range.
+    """ Generate random tensor, centered on mean of range.
+
+        TODO: replace with random tensor to match distribution. 
 
     Parameters
     ----------
