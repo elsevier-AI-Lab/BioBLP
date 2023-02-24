@@ -45,6 +45,7 @@ from typing import Union, Tuple, List, Dict
 
 from bioblp.data import COL_EDGE, COL_SOURCE, COL_TARGET
 from bioblp.logging import get_logger
+from bioblp.benchmarking.utils import load_toml
 
 
 logger = get_logger(__name__)
@@ -66,15 +67,6 @@ class NestedCVArguments():
     n_iter: int = field(default=2, metadata={"help": "Stuff"})
     inner_n_folds: int = field(default=3)
     outer_n_folds: int = field(default=3)
-
-
-def load_toml(toml_path: str) -> dict:
-    toml_path = Path(toml_path)
-    config = {}
-    with open(toml_path, "r") as f:
-        config = toml.load(f)
-
-    return config
 
 
 def parse_train_config(toml_path: str) -> dict:
@@ -615,69 +607,96 @@ def load_feature_data(feat_path: Union[str, Path], dev_run: bool = False) -> Tup
     return X, y
 
 
-def run(args):
+def validate_features_exist(feature_dir: Path, models_conf: dict) -> bool:
+    exists = {}
+
+    all_features = list(set([v.get("feature")
+                        for _, v in models_conf.items()]))
+
+    for feat in all_features:
+        exists[feat] = feature_dir.joinpath(f"{feat}.pt").is_file()
+
+    logger.info(f"Validated that features exist: {exists}..")
+
+    missing = [k for k, v in exists.items() if v is False]
+    if len(missing) > 0:
+        logger.warning(f"Missing features {missing}!!")
+
+    return all([v for _, v in exists.items()])
+
+
+def run(conf: str, n_proc: int = 1, tag: str = None, override_data_root=None, override_run_id=None):
     """Perform train run"""
 
     # reproducibility
     # SEED is set as global
     start = time()
-    run_timestamp = args.override_timestamp or int(start)
+    run_id = override_run_id or int(start)
 
     logger.info("Starting model building script at {}.".format(start))
 
-    conf_path = Path(args.conf)
+    conf_path = Path(conf)
 
     conf_dict = parse_train_config(conf_path)
 
+    if override_data_root is not None:
+        conf_dict.update({"data_root": Path(override_data_root)})
+
     conf = NestedCVArguments(**conf_dict)
 
-    out_root = Path(conf.experiment_root).joinpath(str(run_timestamp))
+    out_root = Path(conf.experiment_root).joinpath(str(run_id))
     models_out = out_root.joinpath(conf.outdir)
     models_out.mkdir(parents=True, exist_ok=True)
 
     exp_output = defaultdict(dict)
     exp_output["config"] = asdict(conf)
 
-    ############
-    # Setup classifiers & pipelines
-    ############
+    if validate_features_exist(feature_dir=out_root,
+                               models_conf=conf.models):
 
-    X_bm, y_bm = load_feature_data(
-        out_root.joinpath("raw.pt"), dev_run=args.dev_run)
+        ############
+        # Setup classifiers & pipelines
+        ############
 
-    logger.info("Config contains models {}.".format(conf.models))
+        X_bm, y_bm = load_feature_data(
+            out_root.joinpath("raw.pt"), dev_run=args.dev_run)
 
-    scorer = get_scorers()
+        logger.info("Config contains models {}.".format(conf.models))
 
-    nested_cv_scores = run_nested_cv(
-        models=conf.models,
-        data_dir=out_root,
-        X=X_bm,
-        y=y_bm,
-        scoring=scorer,
-        inner_n_folds=conf.inner_n_folds,
-        inner_n_iter=conf.n_iter,
-        outer_n_folds=conf.outer_n_folds,
-        shuffle=conf.shuffle,
-        n_jobs=args.n_proc,
-        refit_params=conf.refit_params,
-        random_state=SEED,
-        outdir=models_out,
-        timestamp=run_timestamp,
-        wandb_tag=args.tag
-    )
+        scorer = get_scorers()
 
-    for algo, scores in nested_cv_scores.items():
-        logger.info("Scores {}: {}".format(algo, scores))
+        nested_cv_scores = run_nested_cv(
+            models=conf.models,
+            data_dir=out_root,
+            X=X_bm,
+            y=y_bm,
+            scoring=scorer,
+            inner_n_folds=conf.inner_n_folds,
+            inner_n_iter=conf.n_iter,
+            outer_n_folds=conf.outer_n_folds,
+            shuffle=conf.shuffle,
+            n_jobs=n_proc,
+            refit_params=conf.refit_params,
+            random_state=SEED,
+            outdir=models_out,
+            timestamp=run_id,
+            wandb_tag=tag
+        )
 
-    exp_output["results"] = nested_cv_scores
+        for algo, scores in nested_cv_scores.items():
+            logger.info("Scores {}: {}".format(algo, scores))
 
-    logger.info(exp_output)
+        exp_output["results"] = nested_cv_scores
 
-    file_out = models_out.joinpath(
-        "nested_cv_scores_{}.npy".format(run_timestamp))
-    logger.info("Saving to {}".format(file_out))
-    np.save(file_out, exp_output)
+        logger.info(exp_output)
+
+        file_out = models_out.joinpath(
+            "nested_cv_scores_{}.npy".format(run_id))
+        logger.info("Saving to {}".format(file_out))
+        np.save(file_out, exp_output)
+
+    else:
+        logger.warning(f"Terminating...")
 
     end = time()
 
@@ -690,8 +709,8 @@ if __name__ == "__main__":
                         help="Path to experiment configuration")
     parser.add_argument("--override_data_root", type=str,
                         help="Path to root of data tree")
-    parser.add_argument("--override_timestamp", type=str,
-                        help="Path to root of data tree")
+    parser.add_argument("--override_run_id", type=str,
+                        help="Run id of experiment")
     parser.add_argument(
         "--n_proc", type=int, default=1, help="Number of cores to use in process."
     )
@@ -710,4 +729,5 @@ if __name__ == "__main__":
     # )
 
     args = parser.parse_args()
-    run(args)
+    # run(args)
+    run(**vars(args))
