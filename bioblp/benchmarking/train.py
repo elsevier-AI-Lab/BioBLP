@@ -631,7 +631,7 @@ def validate_features_exist(feature_dir: Path, models_conf: dict) -> bool:
     return all([v for _, v in exists.items()])
 
 
-def run(conf: str, n_proc: int = 1, tag: str = None, override_data_root=None, override_run_id=None):
+def run(conf: str, n_proc: int = -1, tag: str = None, override_data_root=None, override_run_id=None):
     """Perform train run"""
 
     # reproducibility
@@ -718,7 +718,7 @@ if __name__ == "__main__":
     parser.add_argument("--override_run_id", type=str,
                         help="Run id of experiment")
     parser.add_argument(
-        "--n_proc", type=int, default=1, help="Number of cores to use in process."
+        "--n_proc", type=int, default=-1, help="Number of cores to use in process."
     )
     parser.add_argument("--tag", type=str,
                         help="Optional tag to add to wand runs")
