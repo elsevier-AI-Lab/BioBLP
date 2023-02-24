@@ -44,7 +44,7 @@ update:
 	poetry export -f requirements.txt --without-hashes  --with dev --output requirements.txt
 
 test:
-	poetry run pytest tests
+	poetry run pytest tests -s -vv
 
 create_ipython_kernel:
 	poetry run ipython kernel install --user --display-name="${KERNEL_NAME}"
