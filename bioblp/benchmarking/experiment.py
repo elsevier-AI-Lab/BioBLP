@@ -14,9 +14,13 @@ def run_experiment(args):
     # Negative sampling
     preprocess_args = parse_preprocess_config(args.conf)
     data_root = Path(preprocess_args["data_root"])
+
     preprocess_args["kg_triples_dir"] = data_root.joinpath(
         preprocess_args["kg_triples_dir"])
-    preprocess_args["outdir"] = data_root.joinpath(preprocess_args["outdir"])
+
+    preprocess_args["outdir"] = data_root.joinpath(
+        preprocess_args.experiment_root).joinpath(preprocess_args["outdir"])
+
     preprocess_cfg = PreprocessConfig(**preprocess_args)
 
     sampling_main(bm_data_path=args.bm_file,
