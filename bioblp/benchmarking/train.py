@@ -7,6 +7,7 @@ import random as rn
 import pandas as pd
 import abc
 import toml
+import joblib
 
 import wandb
 
@@ -19,6 +20,7 @@ from collections import defaultdict
 from optuna.integration.wandb import WeightsAndBiasesCallback
 from dataclasses import dataclass
 from dataclasses import field
+
 
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
@@ -574,6 +576,10 @@ def run_nested_cv(models: Dict[str, dict],
              # accumulate curve scores
             for k_i, v_i in curves_i.items():
                 outer_scores[name]["curves"][k_i].append(v_i)
+
+            # store model
+            joblib.dump(model, outdir.joinpath(
+                f"{timestamp}-{study_name}-{name}.joblib"))
 
     return outer_scores
 
