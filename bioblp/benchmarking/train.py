@@ -130,8 +130,8 @@ def get_model_label(feature: str, model: str):
     return f"{feature}__{model}"
 
 
-class FileResultTracker():
-    def __init__(self):
+class TerminalResultTracker():
+    def __init__(self, file=None):
         self.file = None
 
     def __call__(self, study, trial_i, **kwargs):
@@ -494,7 +494,7 @@ def run_nested_cv(models: Dict[str, dict],
             wandb_callback = WeightsAndBiasesCallback(
                 metric_name=refit_params, wandb_kwargs=wandb_kwargs, as_multirun=True)
 
-            file_tracker_callback = FileResultTracker()
+            file_tracker_callback = TerminalResultTracker(f)
 
             # perform optimisation
             study.optimize(objective, n_trials=inner_n_iter,
