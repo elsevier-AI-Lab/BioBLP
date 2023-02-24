@@ -51,7 +51,7 @@ def get_parser() -> ArgumentParser:
     parser.add_argument("--override_data_root", type=str,
                         help="Path to root of data tree")
     parser.add_argument(
-        "--n_proc", type=int, default=1, help="Number of cores to use in process."
+        "--n_proc", type=int, default=-1, help="Number of cores to use in process."
     )
     parser.add_argument("--tag", type=str,
                         help="Optional tag to add to wandb runs")
