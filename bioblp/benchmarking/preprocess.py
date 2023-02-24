@@ -1,19 +1,43 @@
-from argparse import ArgumentParser
-from collections.abc import Callable
 import pandas as pd 
+
+from argparse import ArgumentParser
+from dataclasses import dataclass
 from pathlib import Path
-from pykeen.sampling import BasicNegativeSampler
 from pykeen.sampling import PseudoTypedNegativeSampler
 from pykeen.triples import TriplesFactory
+
+from time import time
 from typing import Union
-import torch
 
 from bioblp.logging import get_logger
 from bioblp.data import COL_EDGE, COL_SOURCE, COL_TARGET
-
+from bioblp.benchmarking.utils import load_toml
 
 logger = get_logger(__name__)
 COL_LABEL = 'label'
+
+
+@dataclass
+class PreprocessConfig():
+    data_root: str
+    experiment_root: str
+    outdir: str
+    num_negs_per_pos: int
+    kg_triples_dir: str
+
+
+def parse_preprocess_config(toml_path) -> dict:
+    config_toml = load_toml(toml_path)
+
+    preprocess_cfg = config_toml.get("sampling")
+
+    data_root = config_toml.get("data_root")
+    experiment_root = config_toml.get("experiment_root")
+
+    preprocess_cfg.update({"data_root": data_root})
+    preprocess_cfg.update({"experiment_root": experiment_root})
+
+    return preprocess_cfg
 
 
 def prepare_dpi_samples(pos_df, 
@@ -64,11 +88,17 @@ def generate_negative_triples(pos_triples: TriplesFactory,
     return neg_triples
 
 
-def main(args):
-    bm_data_path = Path(args.bm_data_path)
-    kg_triples_dir = Path(args.kg_triples_dir)
-    outdir = Path(args.outdir)
-    num_negs_per_pos = args.num_negs_per_pos
+def main(bm_data_path: str, kg_triples_dir: str, outdir: str, num_negs_per_pos: int = 1, override_run_id = None):
+
+    start = time()
+    run_id = override_run_id or int(start)
+
+    bm_data_path = Path(bm_data_path)
+    kg_triples_dir = Path(kg_triples_dir)
+    outdir = Path(outdir).joinpath(str(run_id))
+    outdir.mkdir(parents=True, exist_ok=True)
+
+    num_negs_per_pos = num_negs_per_pos
     bm_dataset_name = bm_data_path.name.split('.tsv')[0]
 
     training_triples = TriplesFactory.from_path_binary(kg_triples_dir)
@@ -89,7 +119,7 @@ def main(args):
     ### not required, taken care of in the nested cv script
     
     # save to disk
-    bm_postprocessed_path = outdir.joinpath(f"benchmarks/processed/{bm_dataset_name}_p2n-1-{num_negs_per_pos}.tsv")
+    bm_postprocessed_path = outdir.joinpath(f"{bm_dataset_name}_p2n-1-{num_negs_per_pos}.tsv")
     logger.info(f'Writing preprocessed data to {bm_postprocessed_path}')
     pos_neg_df.to_csv(bm_postprocessed_path, sep='\t')
     logger.info('Done!')
@@ -103,6 +133,7 @@ if __name__ == "__main__":
     parser.add_argument("--kg_triples_dir", type=str, help="Directory housing kg positive triples. Needed to generate negative samples")
     parser.add_argument("--num_negs_per_pos", type=int, help="Number of negative samples to generate per positive instance")
     parser.add_argument("--outdir", type=str, help="Path to data dir to write output")
-
+    parser.add_argument("--override_run_id", type=str,
+                        help="Run id of experiment")
     args = parser.parse_args()
-    main(args)
+    main(**vars(args))
