@@ -173,7 +173,7 @@ def run(args: Arguments):
                           'evaluation_batch_size': args.eval_batch_size,
                           'metric': args.early_stopper,
                           'frequency': args.eval_every,
-                          'patience': 5,
+                          'patience': 10,
                           'relative_delta': 0.0001,
                           'larger_is_better': True
                       },
