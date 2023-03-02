@@ -1,6 +1,7 @@
 import pandas as pd
 from pykeen.triples import TriplesFactory
-
+from pykeen.evaluation import RankBasedEvaluator
+import wandb
 
 ###### Define CONSTANTS ######
 TEST = "test"
@@ -21,6 +22,15 @@ OUT_DEGREE = "out_degree"
 # WandB stuff
 WANDB_ENTITY_DISCOVERYLAB = "discoverylab"
 
+
+# pykeen evaluation parameters
+EVAL_NODE_BOTH = "both"
+EVAL_NODE_HEAD = "head"
+EVAL_NODE_TAIL = "tail"
+EVAL_METRIC_REALISTIC = "realistic"
+EVAL_METRICS_SHORTLIST = ["arithmetic_mean_rank", "adjusted_arithmetic_mean_rank", 
+                          "inverse_harmonic_mean_rank", "hits_at_1",
+                          "hits_at_3", "hits_at_5", "hits_at_10"] 
 
 
 ###### WandB utils ###### 
@@ -44,7 +54,63 @@ def setup_wandb_result_tracker(model_name:str,
     return run
 
 
-### test sets
+def run_experiment_and_log_wandb(study_name:str, 
+                                 test_set_slug:str, 
+                                 model_name:str,
+                                 wandb_project_name:str, 
+                                 eval_func,
+                                 wandb_entity_name:str=WANDB_ENTITY_DISCOVERYLAB,
+                                 **eval_kwargs):
+    tags = {"model_name": model_name,
+            "study_name": study_name,
+            "test_set_type": test_set_slug}
+    metrics = eval_func(**eval_kwargs)
+    run = setup_wandb_result_tracker(**tags, project_name=wandb_project_name, wandb_entity=wandb_entity_name)
+    run.log(metrics)
+    return metrics
+
+
+##### evaluation logic ##### 
+
+
+        
+
+##### format evaluation metrics #####
+
+# todo: combine make_results_dict_all_rel and make_results_dict_rel_breakdown
+def make_results_dict_all_rel(results, relation, relation_count,
+                      triple_endpoint=EVAL_NODE_BOTH,
+                      metric_type = EVAL_METRIC_REALISTIC):
+    
+    metrics_shortlist=EVAL_METRICS_SHORTLIST
+
+    results = results.to_dict()
+    results_dict = {'Relation': 'All' if not relation else relation,
+                    'Count': relation_count,
+                    **{metric: results[triple_endpoint][metric_type][metric] for metric in metrics_shortlist}
+                   }
+
+    return results_dict
+
+def make_results_dict_rel_breakdown(results, relation, relation_count,
+                      triple_endpoint="both",
+                      metric_type = "realistic"):
+    
+    metrics_shortlist=["arithmetic_mean_rank", "adjusted_arithmetic_mean_rank", 
+                       "inverse_harmonic_mean_rank", "hits_at_1",
+                       "hits_at_3", "hits_at_5", "hits_at_10"]
+    if not relation:
+        relation= 'All'
+    results = results.to_dict()
+    results_dict = {relation: {
+        'Count': relation_count,
+        **{metric: results[triple_endpoint][metric_type][metric] for metric in metrics_shortlist}
+    }}
+
+    return results_dict
+
+
+##### test set processing stuff #####
 
 def split_train_ents_by_existance_of_properties(train_triples: TriplesFactory, 
                                                 typed_ent_set: set,
@@ -58,10 +124,11 @@ def split_train_ents_by_existance_of_properties(train_triples: TriplesFactory,
     return train_typed_ent_set, train_typed_ents_w_properties_set 
     
     
-def split_test_triples_conditioned_on_ent_property(train_triples: TriplesFactory, 
-                                                   typed_ent_set: set,
+def split_test_triples_conditioned_on_ent_property(typed_ent_set: set,
                                                    typed_ent_with_prop_set: set,
-                                                   test_triples: TriplesFactory):
+                                                   test_triples: TriplesFactory,
+                                                   train_triples: TriplesFactory,
+                                                  ):
     train_typed_ent_set, train_typed_ents_w_properties_set = split_train_ents_by_existance_of_properties(train_triples, typed_ent_set, typed_ent_with_prop_set)
     
     ## create triples
