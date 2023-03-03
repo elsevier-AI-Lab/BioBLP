@@ -58,6 +58,7 @@ DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 class NestedCVArguments():
     data_root: str
     experiment_root: str
+    feature_dir: str
     outdir: str
     models: dict
     shuffle: bool
@@ -77,6 +78,8 @@ def parse_train_config(toml_path: str) -> dict:
 
     cfg["data_root"] = conf.get("data_root")
     cfg["experiment_root"] = conf.get("experiment_root")
+
+    cfg["feature_dir"] = conf.get("features").get("outdir")
 
     return cfg
 
@@ -404,6 +407,7 @@ def run_nested_cv(models: Dict[str, dict],
                   X,
                   y,
                   scoring: dict,
+                  outdir: Path,
                   outer_n_folds: int = 5,
                   inner_n_folds: int = 2,
                   inner_n_iter: int = 10,
@@ -412,7 +416,6 @@ def run_nested_cv(models: Dict[str, dict],
                   n_jobs: int = -1,
                   refit_params: list = ["AUCPR", "AUCROC"],
                   verbose: int = 14,
-                  outdir: Path = None,
                   timestamp: str = None,
                   wandb_tag: str = None
                   ) -> dict:
@@ -683,7 +686,7 @@ def validate_features_exist(feature_dir: Path, models_conf: dict) -> bool:
     return all([v for _, v in exists.items()])
 
 
-def run(conf: str, n_proc: int = -1, tag: str = None, override_data_root=None, override_run_id=None):
+def run(conf: str, n_proc: int = -1, tag: str = None, override_data_root=None, override_run_id=None, **kwargs):
     """Perform train run"""
 
     # reproducibility
@@ -702,14 +705,18 @@ def run(conf: str, n_proc: int = -1, tag: str = None, override_data_root=None, o
 
     conf = NestedCVArguments(**conf_dict)
 
-    out_root = Path(conf.experiment_root).joinpath(str(run_id))
+    out_root = Path(conf_dict["data_root"]).joinpath(
+        conf.experiment_root).joinpath(str(run_id))
+
+    feature_dir = out_root.joinpath(conf.feature_dir)
+
     models_out = out_root.joinpath(conf.outdir)
     models_out.mkdir(parents=True, exist_ok=True)
 
     exp_output = defaultdict(dict)
     exp_output["config"] = asdict(conf)
 
-    if validate_features_exist(feature_dir=out_root,
+    if validate_features_exist(feature_dir=feature_dir,
                                models_conf=conf.models):
 
         ############
@@ -717,7 +724,7 @@ def run(conf: str, n_proc: int = -1, tag: str = None, override_data_root=None, o
         ############
 
         X_bm, y_bm = load_feature_data(
-            out_root.joinpath("raw.pt"), dev_run=args.dev_run)
+            feature_dir.joinpath("raw.pt"), dev_run=kwargs["dev_run"])
 
         logger.info("Config contains models {}.".format(conf.models))
 
@@ -725,7 +732,7 @@ def run(conf: str, n_proc: int = -1, tag: str = None, override_data_root=None, o
 
         nested_cv_scores = run_nested_cv(
             models=conf.models,
-            data_dir=out_root,
+            data_dir=feature_dir,
             X=X_bm,
             y=y_bm,
             scoring=scorer,

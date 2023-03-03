@@ -157,11 +157,11 @@ def main(bm_file: str, conf: str, override_data_root=None, override_run_id=None)
         masked_encoded_bm = [(x[0], x[1]) for x in encoded_bm]
         masked_labels = labels
 
-    logger.info("Saving features...")
-
     feature_outdir = Path(config.data_root).joinpath(
-        config.experiment_root).joinpath(run_id)
+        config.experiment_root).joinpath(run_id).joinpath(config.outdir)
     feature_outdir.mkdir(parents=True, exist_ok=True)
+
+    logger.info(f"Saving features to {feature_outdir}...")
 
     for enc_label, enc_pairs in masked_encoded_bm:
         logger.info(
