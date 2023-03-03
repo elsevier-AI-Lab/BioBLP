@@ -40,6 +40,19 @@ def parse_preprocess_config(toml_path) -> dict:
     return preprocess_cfg
 
 
+def generate_negative_triples(pos_triples: TriplesFactory,
+                              filtered=True,
+                              num_negs_per_pos=1):
+
+    neg_sampler = PseudoTypedNegativeSampler(mapped_triples=pos_triples.mapped_triples,
+                                             filtered=filtered,
+                                             num_negs_per_pos=num_negs_per_pos)
+    pos_batch = pos_triples.mapped_triples
+    neg_triples = neg_sampler.sample(pos_batch)[0]
+
+    return neg_triples
+
+
 def prepare_dpi_samples(pos_df,
                         num_negs_per_pos: Union[None, int, str] = 1,
                         entity_to_id_map: Union[None, dict] = None,
@@ -77,20 +90,7 @@ def prepare_dpi_samples(pos_df,
     return pos_neg_df
 
 
-def generate_negative_triples(pos_triples: TriplesFactory,
-                              filtered=True,
-                              num_negs_per_pos=1):
-
-    neg_sampler = PseudoTypedNegativeSampler(mapped_triples=pos_triples.mapped_triples,
-                                             filtered=filtered,
-                                             num_negs_per_pos=num_negs_per_pos)
-    pos_batch = pos_triples.mapped_triples
-    neg_triples = neg_sampler.sample(pos_batch)[0]
-
-    return neg_triples
-
-
-def main(bm_data_path: str, kg_triples_dir: str, outdir: str, num_negs_per_pos: int = 1, override_run_id=None) -> str:
+def main(bm_data_path: str, kg_triples_dir: str, outdir: str, num_negs_per_pos: int = 1, override_run_id=None):
 
     start = time()
     run_id = override_run_id or int(start)
