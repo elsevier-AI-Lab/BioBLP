@@ -5,14 +5,13 @@ experiment_root = "data/benchmarks/experiments/dpi_fda/20230224/"
 [sampling]
 outdir = "sampled"
 num_negs_per_pos = 10
-kg_triples_dir = "data/benchmarks/backbone_kg/"
+kg_triples_dir = "data/benchmarks/experiments/encoders/rotate/training_triples/"
 
 [features]
 outdir = "features"
 transform = "concat"
 missing_values = "random"
 encoders = ["structural", "complex", "rotate", "noise"]
-
 
 [features.encoder_args.noise]
 random_seed = 24
