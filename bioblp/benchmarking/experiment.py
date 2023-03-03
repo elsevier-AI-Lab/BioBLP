@@ -15,7 +15,7 @@ def run_experiment(args):
     experiment_id = str(int(time()))
 
     override_data_root = Path(
-        args.override_data_root) if override_data_root is not None else None
+        args.override_data_root) if args.override_data_root is not None else None
 
     #
     # Negative sampling
