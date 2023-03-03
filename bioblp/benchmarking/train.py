@@ -494,7 +494,7 @@ def run_nested_cv(models: Dict[str, dict],
             wandb_callback = WeightsAndBiasesCallback(
                 metric_name=refit_params, wandb_kwargs=wandb_kwargs, as_multirun=True)
 
-            file_tracker_callback = ConsoleResultTracker(f)
+            file_tracker_callback = ConsoleResultTracker()
 
             # perform optimisation
             study.optimize(objective, n_trials=inner_n_iter,
