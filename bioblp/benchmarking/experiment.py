@@ -1,10 +1,11 @@
-import abc
 from argparse import ArgumentParser
 from time import time
 from pathlib import Path
 from bioblp.benchmarking.preprocess import main as sampling_main
-from bioblp.benchmarking.config import parse_preprocess_config
-from bioblp.benchmarking.config import PreprocessConfig
+from bioblp.benchmarking.config import BenchmarkPreprocessConfig
+from bioblp.benchmarking.config import BenchmarkFeatureConfig
+from bioblp.benchmarking.config import BenchmarkTrainConfig
+
 from bioblp.benchmarking.featurise import main as featurise_main
 from bioblp.benchmarking.train import run as train_main
 
@@ -13,42 +14,38 @@ def run_experiment(args):
 
     experiment_id = str(int(time()))
 
-    override_data_root = Path(args.override_data_root)
+    override_data_root = Path(
+        args.override_data_root) if override_data_root is not None else None
 
+    #
     # Negative sampling
-    preprocess_args = parse_preprocess_config(args.conf)
+    #
+    preprocess_config = BenchmarkPreprocessConfig.from_toml(
+        args.conf, run_id=experiment_id)
 
-    data_root = override_data_root if override_data_root is not None else Path(
-        preprocess_args["data_root"])
+    if override_data_root:
+        preprocess_config.data_root = override_data_root
 
-    experiment_path = data_root.joinpath(preprocess_args["experiment_root"])
-
-    preprocess_args["kg_triples_dir"] = data_root.joinpath(
-        preprocess_args["kg_triples_dir"])
-    preprocess_args["outdir"] = experiment_path.joinpath(experiment_id).joinpath(
-        preprocess_args["outdir"])
-    preprocess_cfg = PreprocessConfig(**preprocess_args)
-
-    # perform sampling
     sampled_bm_filepath = sampling_main(bm_data_path=args.bm_file,
-                                        kg_triples_dir=preprocess_cfg.kg_triples_dir,
-                                        num_negs_per_pos=preprocess_cfg.num_negs_per_pos,
-                                        outdir=preprocess_cfg.outdir,
+                                        kg_triples_dir=preprocess_config.kg_triples_dir,
+                                        num_negs_per_pos=preprocess_config.num_negs_per_pos,
+                                        outdir=preprocess_config.resolve_outdir(),
                                         override_run_id=experiment_id)
-
+    #
     # Prepare features
-
+    #
     featurise_main(bm_file=sampled_bm_filepath,
                    conf=args.conf,
-                   override_data_root=data_root,
+                   override_data_root=override_data_root,
                    override_run_id=experiment_id)
 
+    #
     # Run training
-
+    #
     train_main(conf=args.conf,
                n_proc=args.n_proc,
                tag=args.tag,
-               override_data_root=data_root,
+               override_data_root=override_data_root,
                override_run_id=experiment_id,
                dev_run=args.dev_run)
 

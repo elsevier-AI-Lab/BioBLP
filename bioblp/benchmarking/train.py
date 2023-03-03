@@ -17,8 +17,6 @@ from pathlib import Path
 from time import time
 from collections import defaultdict
 from optuna.integration.wandb import WeightsAndBiasesCallback
-from dataclasses import dataclass
-from dataclasses import field
 
 
 from sklearn.ensemble import RandomForestClassifier
@@ -40,10 +38,10 @@ from sklearn.model_selection import cross_validate
 from sklearn.model_selection import train_test_split
 from skorch import NeuralNetClassifier
 
-from typing import Union, Tuple, List, Dict
+from typing import Union, Tuple, Dict
 
 from bioblp.logging import get_logger
-from bioblp.benchmarking.utils import load_toml
+from bioblp.benchmarking.config import BenchmarkTrainConfig
 
 
 logger = get_logger(__name__)
@@ -52,36 +50,6 @@ logger = get_logger(__name__)
 SEED = 42
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-
-@dataclass
-class NestedCVArguments():
-    data_root: str
-    experiment_root: str
-    feature_dir: str
-    outdir: str
-    models: dict
-    shuffle: bool
-    refit_params: List[str]
-    n_iter: int = field(default=2, metadata={"help": "Stuff"})
-    inner_n_folds: int = field(default=3)
-    outer_n_folds: int = field(default=3)
-
-
-def parse_train_config(toml_path: str) -> dict:
-    conf = load_toml(toml_path=toml_path)
-    cfg = {}
-
-    cfg["models"] = conf.get("models")
-
-    cfg.update(conf.get("train"))
-
-    cfg["data_root"] = conf.get("data_root")
-    cfg["experiment_root"] = conf.get("experiment_root")
-
-    cfg["feature_dir"] = conf.get("features").get("outdir")
-
-    return cfg
 
 
 def get_random_string(length):
@@ -131,7 +99,7 @@ def get_model_label(feature: str, model: str):
     return f"{feature}__{model}"
 
 
-class TerminalResultTracker():
+class ConsoleResultTracker():
     def __init__(self, file=None):
         self.file = None
 
@@ -526,7 +494,7 @@ def run_nested_cv(models: Dict[str, dict],
             wandb_callback = WeightsAndBiasesCallback(
                 metric_name=refit_params, wandb_kwargs=wandb_kwargs, as_multirun=True)
 
-            file_tracker_callback = TerminalResultTracker(f)
+            file_tracker_callback = ConsoleResultTracker(f)
 
             # perform optimisation
             study.optimize(objective, n_trials=inner_n_iter,
@@ -692,32 +660,27 @@ def run(conf: str, n_proc: int = -1, tag: str = None, override_data_root=None, o
     # reproducibility
     # SEED is set as global
     start = time()
-    run_id = override_run_id or int(start)
-
     logger.info("Starting model building script at {}.".format(start))
+
+    run_id = override_run_id or str(int(start))
 
     conf_path = Path(conf)
 
-    conf_dict = parse_train_config(conf_path)
+    config = BenchmarkTrainConfig.from_toml(conf_path, run_id=run_id)
 
     if override_data_root is not None:
-        conf_dict.update({"data_root": Path(override_data_root)})
+        config.data_root = override_data_root
 
-    conf = NestedCVArguments(**conf_dict)
+    feature_dir = config.resolve_feature_dir()
 
-    out_root = Path(conf_dict["data_root"]).joinpath(
-        conf.experiment_root).joinpath(str(run_id))
-
-    feature_dir = out_root.joinpath(conf.feature_dir)
-
-    models_out = out_root.joinpath(conf.outdir)
+    models_out = config.resolve_outdir()
     models_out.mkdir(parents=True, exist_ok=True)
 
     exp_output = defaultdict(dict)
-    exp_output["config"] = asdict(conf)
+    exp_output["config"] = asdict(config)
 
     if validate_features_exist(feature_dir=feature_dir,
-                               models_conf=conf.models):
+                               models_conf=config.models):
 
         ############
         # Setup classifiers & pipelines
@@ -726,22 +689,22 @@ def run(conf: str, n_proc: int = -1, tag: str = None, override_data_root=None, o
         X_bm, y_bm = load_feature_data(
             feature_dir.joinpath("raw.pt"), dev_run=kwargs["dev_run"])
 
-        logger.info("Config contains models {}.".format(conf.models))
+        logger.info("Config contains models {}.".format(config.models))
 
         scorer = get_scorers()
 
         nested_cv_scores = run_nested_cv(
-            models=conf.models,
+            models=config.models,
             data_dir=feature_dir,
             X=X_bm,
             y=y_bm,
             scoring=scorer,
-            inner_n_folds=conf.inner_n_folds,
-            inner_n_iter=conf.n_iter,
-            outer_n_folds=conf.outer_n_folds,
-            shuffle=conf.shuffle,
+            inner_n_folds=config.inner_n_folds,
+            inner_n_iter=config.n_iter,
+            outer_n_folds=config.outer_n_folds,
+            shuffle=config.shuffle,
             n_jobs=n_proc,
-            refit_params=conf.refit_params,
+            refit_params=config.refit_params,
             random_state=SEED,
             outdir=models_out,
             timestamp=run_id,

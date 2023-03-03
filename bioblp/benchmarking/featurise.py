@@ -1,6 +1,5 @@
 import torch
 import json
-import toml
 
 import pandas as pd
 import numpy as np
@@ -10,18 +9,15 @@ from argparse import ArgumentParser
 from dataclasses import dataclass, asdict
 from functools import reduce
 
-from torch import nn
 from torch import Tensor
 
 from pathlib import Path
-from enum import Enum
 from time import time
 from tqdm import tqdm
 
 from typing import Tuple, List, Dict
 
 from bioblp.logging import get_logger
-from bioblp.benchmarking.utils import load_toml, ConfigJSONEncoder
 from bioblp.benchmarking.encoders import get_encoder
 from bioblp.benchmarking.encoders import MissingValueMethod
 from bioblp.benchmarking.encoders import EntityPairEncoder
@@ -30,6 +26,7 @@ from bioblp.benchmarking.encoders import NoiseEncoder
 from bioblp.benchmarking.encoders import StructuralPairEncoder
 from bioblp.benchmarking.encoders import RandomNoisePairEncoder
 from bioblp.benchmarking.encoders import KGEMPairEncoder
+from bioblp.benchmarking.config import BenchmarkFeatureConfig, ConfigJSONEncoder
 
 from bioblp.data import COL_EDGE, COL_SOURCE, COL_TARGET
 from bioblp.benchmarking.encoders import ROTATE, TRANSE, COMPLEX, STRUCTURAL, NOISE, LABEL
@@ -43,31 +40,6 @@ logger = get_logger(__name__)
 #
 
 
-@dataclass
-class FeatureConfig():
-    data_root: str
-    experiment_root: str
-    outdir: str
-    transform: str
-    missing_values: str
-    encoders: list
-    encoder_args: dict
-
-
-def parse_feature_conf(conf_path) -> dict:
-    conf_path = Path(conf_path)
-    config_toml = load_toml(conf_path)
-
-    data_root = config_toml.get("data_root")
-    experiment_root = config_toml.get("experiment_root")
-
-    feat_config = config_toml.get("features")
-
-    feat_config.update({"data_root": data_root})
-    feat_config.update({"experiment_root": experiment_root})
-    return feat_config
-
-
 def save_features(outdir: Path, label: str, feature: Tensor, labels: Tensor):
     outfile = outdir.joinpath(f"{label}.pt")
 
@@ -75,7 +47,7 @@ def save_features(outdir: Path, label: str, feature: Tensor, labels: Tensor):
     torch.save(torch_obj, outfile)
 
 
-def build_encodings(config: FeatureConfig, pairs: np.array, encoders: List[str],
+def build_encodings(config: BenchmarkFeatureConfig, pairs: np.array, encoders: List[str],
                     encoder_args: Dict[str, dict], entities_filter: List[str]) -> Tuple[str, Tensor, Tensor]:
     encoded_bm = []
 
@@ -117,14 +89,13 @@ def apply_common_mask(encoded_bm: List[Tuple[str, Tensor, Tensor]], labels: Tens
 
 def main(bm_file: str, conf: str, override_data_root=None, override_run_id=None):
 
-    config = parse_feature_conf(conf)
+    run_id = override_run_id or str(int(time()))
+
+    config = BenchmarkFeatureConfig.from_toml(conf, run_id=run_id)
 
     if override_data_root is not None:
-        config.update({"data_root": Path(override_data_root)})
+        config.data_root = override_data_root
 
-    config = FeatureConfig(**config)
-
-    run_id = override_run_id or str(int(time()))
     logger.info(
         f"Running process with config: {config} at time {run_id}...")
 
@@ -157,8 +128,8 @@ def main(bm_file: str, conf: str, override_data_root=None, override_run_id=None)
         masked_encoded_bm = [(x[0], x[1]) for x in encoded_bm]
         masked_labels = labels
 
-    feature_outdir = Path(config.data_root).joinpath(
-        config.experiment_root).joinpath(run_id).joinpath(config.outdir)
+    feature_outdir = config.resolve_outdir()
+
     feature_outdir.mkdir(parents=True, exist_ok=True)
 
     logger.info(f"Saving features to {feature_outdir}...")

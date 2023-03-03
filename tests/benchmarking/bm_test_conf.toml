@@ -1,0 +1,64 @@
+
+data_root = "/home/jovyan/workbench-shared-folder/bioblp/"
+experiment_root = "data/benchmarks/experiments/dpi_fda/20230224/"
+
+[sampling]
+outdir = "sampled"
+num_negs_per_pos = 10
+kg_triples_dir = "data/benchmarks/experiments/encoders/rotate/training_triples/"
+
+[features]
+outdir = "features"
+transform = "concat"
+missing_values = "random"
+encoders = ["structural", "complex", "rotate", "noise"]
+
+[features.encoder_args.noise]
+random_seed = 24
+
+[features.encoder_args.structural]
+proteins = "data/benchmarks/experiments/encoders/proteins"
+molecules = "data/benchmarks/experiments/encoders/molecules"
+
+[features.encoder_args.complex]
+model_dir = "data/benchmarks/experiments/encoders/complex/"
+
+[features.encoder_args.rotate]
+model_dir = "data/benchmarks/experiments/encoders/rotate/"
+
+[features.encoder_args.transe]
+model_dir = "data/benchmarks/experiments/encoders/transe/"
+
+[models]
+
+[models.noise_lr]
+feature = "noise"
+model = "LR"
+
+[models.noise_rf]
+feature = "noise"
+model = "RF"
+
+[models.noise_mlp]
+feature = "noise"
+model = "MLP"
+
+[models.structural_lr]
+feature = "structural"
+model = "LR"
+
+[models.complex_lr]
+feature = "complex"
+model = "LR"
+
+[models.rotate_lr]
+feature = "rotate"
+model = "LR"
+
+[train]
+n_iter = 2
+inner_n_folds = 2
+outer_n_folds = 2
+shuffle = true
+refit_params = ["AUCPR", "AUCROC"]
+outdir = "models"

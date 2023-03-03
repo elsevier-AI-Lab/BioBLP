@@ -1,7 +1,10 @@
 
 import abc
-from argparse import ArgumentParser
-from time import time
+import toml
+import json
+
+from dataclasses import dataclass, field
+from typing import List
 from pathlib import Path
 
 
@@ -24,7 +27,7 @@ class ConfigJSONEncoder(json.JSONEncoder):
 
 
 @dataclass
-class BenchmarkStepBaseConfig:
+class BenchmarkStepBaseConfig(abc.ABC):
     data_root: str
     experiment_root: str
     run_id: str
@@ -44,7 +47,7 @@ class BenchmarkStepBaseConfig:
 
 
 @dataclass
-class PreprocessStepConfig(BenchmarkStepBaseConfig):
+class BenchmarkPreprocessConfig(BenchmarkStepBaseConfig):
     num_negs_per_pos: int
     kg_triples_dir: str
 
@@ -65,7 +68,7 @@ class PreprocessStepConfig(BenchmarkStepBaseConfig):
 
 
 @dataclass
-class FeaturiseStepConfig(BenchmarkStepBaseConfig):
+class BenchmarkFeatureConfig(BenchmarkStepBaseConfig):
     transform: str
     missing_values: str
     encoders: list
@@ -73,7 +76,7 @@ class FeaturiseStepConfig(BenchmarkStepBaseConfig):
 
     @classmethod
     def from_toml(cls, toml_path: str, run_id: str):
-        conf_path = Path(conf_path)
+        conf_path = Path(toml_path)
         config_toml = load_toml(conf_path)
 
         data_root = config_toml.get("data_root")
@@ -89,97 +92,8 @@ class FeaturiseStepConfig(BenchmarkStepBaseConfig):
 
 
 @dataclass
-class TrainStepConfig(BenchmarkStepBaseConfig):
-    models: dict
-    shuffle: bool
-    refit_params: List[str]
-    n_iter: int = field(default=2, metadata={"help": "Stuff"})
-    inner_n_folds: int = field(default=3)
-    outer_n_folds: int = field(default=3)
-
-    @classmethod
-    def from_toml(cls, toml_path):
-        conf = load_toml(toml_path=toml_path)
-        cfg = {}
-
-        cfg["models"] = conf.get("models")
-
-        cfg.update(conf.get("train"))
-
-        cfg["data_root"] = conf.get("data_root")
-        cfg["experiment_root"] = conf.get("experiment_root")
-        cfg["feature_dir"] = conf.get("features").get("outdir")
-        cfg.update({"run_id": run_id})
-
-        return cls(**cfg)
-
-    def resolve_feature_dir(self) -> Path:
-        feature_dir = Path(self.data_root)\
-            .joinpath(self.experiment_root)\
-            .joinpath(self.run_id)\
-            .joinpath(self.feature_dir)
-
-        return feature_dir
-
-
-#############
-
-
-@dataclass
-class PreprocessConfig():
-    outdir: str
-    num_negs_per_pos: int
-    kg_triples_dir: str
-
-    @classmethod
-    def from_toml(cls, toml_path: str, run_id: str):
-        config_toml = load_toml(toml_path)
-
-        cfg = config_toml.get("sampling")
-
-        data_root = config_toml.get("data_root")
-        experiment_root = config_toml.get("experiment_root")
-
-        cfg.update({"data_root": data_root})
-        cfg.update({"experiment_root": experiment_root})
-        cfg.update({"run_id": run_id})
-
-        return cls(**cfg)
-
-
-@dataclass
-class FeatureConfig():
-    data_root: str
-    experiment_root: str
-    outdir: str
-    transform: str
-    missing_values: str
-    encoders: list
-    encoder_args: dict
-
-    @classmethod
-    def from_toml(cls, toml_path):
-        conf_path = Path(conf_path)
-        config_toml = load_toml(conf_path)
-
-        data_root = config_toml.get("data_root")
-        experiment_root = config_toml.get("experiment_root")
-
-        cfg = config_toml.get("features")
-
-        cfg.update({"data_root": data_root})
-        cfg.update({"experiment_root": experiment_root})
-        cfg.update({"run_id": run_id})
-
-        return cls(**cfg)
-
-
-@ dataclass
-class NestedCVArguments():
-    data_root: str
-    experiment_root: str
+class BenchmarkTrainConfig(BenchmarkStepBaseConfig):
     feature_dir: str
-    outdir: str
     models: dict
     shuffle: bool
     refit_params: List[str]
@@ -188,7 +102,7 @@ class NestedCVArguments():
     outer_n_folds: int = field(default=3)
 
     @classmethod
-    def from_toml(cls, toml_path):
+    def from_toml(cls, toml_path, run_id):
         conf = load_toml(toml_path=toml_path)
         cfg = {}
 

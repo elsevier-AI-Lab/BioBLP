@@ -1,7 +1,6 @@
 import pandas as pd
 
 from argparse import ArgumentParser
-from dataclasses import dataclass
 from pathlib import Path
 from pykeen.sampling import PseudoTypedNegativeSampler
 from pykeen.triples import TriplesFactory
@@ -11,33 +10,9 @@ from typing import Union
 
 from bioblp.logging import get_logger
 from bioblp.data import COL_EDGE, COL_SOURCE, COL_TARGET
-from bioblp.benchmarking.utils import load_toml
 
 logger = get_logger(__name__)
 COL_LABEL = 'label'
-
-
-@dataclass
-class PreprocessConfig():
-    data_root: str
-    experiment_root: str
-    outdir: str
-    num_negs_per_pos: int
-    kg_triples_dir: str
-
-
-def parse_preprocess_config(toml_path) -> dict:
-    config_toml = load_toml(toml_path)
-
-    preprocess_cfg = config_toml.get("sampling")
-
-    data_root = config_toml.get("data_root")
-    experiment_root = config_toml.get("experiment_root")
-
-    preprocess_cfg.update({"data_root": data_root})
-    preprocess_cfg.update({"experiment_root": experiment_root})
-
-    return preprocess_cfg
 
 
 def generate_negative_triples(pos_triples: TriplesFactory,
