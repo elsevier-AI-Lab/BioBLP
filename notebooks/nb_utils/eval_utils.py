@@ -59,13 +59,14 @@ def run_experiment_and_log_wandb(study_name:str,
                                  model_name:str,
                                  wandb_project_name:str, 
                                  eval_func,
+                                 notes:None or str=None,
                                  wandb_entity_name:str=WANDB_ENTITY_DISCOVERYLAB,
                                  **eval_kwargs):
     tags = {"model_name": model_name,
             "study_name": study_name,
             "test_set_type": test_set_slug}
     metrics = eval_func(**eval_kwargs)
-    run = setup_wandb_result_tracker(**tags, project_name=wandb_project_name, wandb_entity=wandb_entity_name)
+    run = setup_wandb_result_tracker(**tags, notes=notes, project_name=wandb_project_name, wandb_entity=wandb_entity_name)
     run.log(metrics)
     return metrics
 
