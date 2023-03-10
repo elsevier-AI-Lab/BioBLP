@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=bioblp-d-complex
+#SBATCH --job-name=bioblp-d-transe
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=18
 #SBATCH --time=24:00:00
@@ -23,9 +23,10 @@ python -m bioblp.train \
         --valid_triples=data/biokgb/graph/biokg.links-valid.csv \
         --test_triples=data/biokgb/graph/biokg.links-test.csv \
         --text_data=data/biokgb/properties/biokg_meshid_to_descr_name.tsv \
-        --model=complex \
-        --dimension=256 \
-        --loss_fn=crossentropy \
+        --model=transe \
+        --dimension=512 \
+        --loss_fn=marginranking \
+        --loss_margin=8.155451890616455 \
         --optimizer=adam \
         --learning_rate=2e-5 \
         --warmup_fraction=0.05 \
@@ -34,8 +35,9 @@ python -m bioblp.train \
         --eval_batch_size=64 \
         --num_negatives=512 \
         --in_batch_negatives=True \
+        --from_checkpoint=models/394htt2x \
         --log_wandb=True \
-        --notes="ComplEx BioBLP-D CE loss"
+        --notes="TransE BioBLP-D initialized with 394htt2x"
 
 # Keep files generated during job
 RESULTS_FOLDER=$HOME/$PROJ_FOLDER-$OUT_FOLDER
