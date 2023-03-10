@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=bioblp-d-complex
+#SBATCH --job-name=bioblp-d
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=18
 #SBATCH --time=24:00:00
@@ -25,7 +25,7 @@ python -m bioblp.train \
         --text_data=data/biokgb/properties/biokg_meshid_to_descr_name.tsv \
         --model=complex \
         --dimension=256 \
-        --loss_fn=crossentropy \
+        --loss_fn=bcewithlogits \
         --optimizer=adam \
         --learning_rate=2e-5 \
         --warmup_fraction=0.05 \
@@ -34,8 +34,9 @@ python -m bioblp.train \
         --eval_batch_size=64 \
         --num_negatives=512 \
         --in_batch_negatives=True \
+        --from_checkpoint=models/1e9b4f4o \
         --log_wandb=True \
-        --notes="ComplEx BioBLP-D CE loss"
+        --notes="ComplEx BioBLP-D initialized with 1e9b4f4o"
 
 # Keep files generated during job
 RESULTS_FOLDER=$HOME/$PROJ_FOLDER-$OUT_FOLDER

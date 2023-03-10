@@ -26,7 +26,7 @@ python -m bioblp.train \
         --model=transe \
         --dimension=512 \
         --loss_fn=marginranking \
-        --loss_margin=1.604758299922046 \
+        --loss_margin=8.155451890616455 \
         --optimizer=adam \
         --learning_rate=2e-5 \
         --warmup_fraction=0.05 \
@@ -36,7 +36,7 @@ python -m bioblp.train \
         --num_negatives=512 \
         --in_batch_negatives=True \
         --log_wandb=True \
-        --notes="TransE BioBLP-D"
+        --notes="TransE BioBLP-D, margin from sage-shadow-1047"
 
 # Keep files generated during job
 RESULTS_FOLDER=$HOME/$PROJ_FOLDER-$OUT_FOLDER
