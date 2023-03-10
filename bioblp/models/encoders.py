@@ -40,7 +40,9 @@ class LookupTableEncoder(PropertyEncoder):
 
 
 class PretrainedLookupTableEncoder(PropertyEncoder):
-    def __init__(self, file_path: str, dim: int):
+    def __init__(self, file_path: str,
+                 dim: int,
+                 freeze_pretrained_embeddings: bool):
         super().__init__(file_path, dim)
 
         data_dict = torch.load(file_path)
@@ -50,8 +52,11 @@ class PretrainedLookupTableEncoder(PropertyEncoder):
 
         self.embeddings = nn.Embedding(num_entities, in_dim)
         self.embeddings.weight.data = data_dict['embeddings']
-        # TODO: dim could be higher than in_dim
         self.linear = nn.Linear(in_dim, dim)
+
+        if freeze_pretrained_embeddings:
+            for param in self.embeddings.parameters():
+                param.requires_grad = False
 
     def preprocess_properties(self,
                               entity_to_id: Mapping[str, int]
