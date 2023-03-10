@@ -1,18 +1,17 @@
 
 data_root = "/home/jovyan/workbench-shared-folder/bioblp/"
-experiment_root = "data/benchmarks/experiments/dpi_fda/"
+experiment_root = "data/benchmarks/experiments/dpi_fda/20230224/"
 
 [sampling]
 outdir = "sampled"
 num_negs_per_pos = 10
-kg_triples_dir = "data/benchmarks/backbone_kg/"
+kg_triples_dir = "data/benchmarks/experiments/encoders/rotate/training_triples/"
 
 [features]
 outdir = "features"
 transform = "concat"
 missing_values = "random"
 encoders = ["structural", "complex", "rotate", "noise"]
-
 
 [features.encoder_args.noise]
 random_seed = 24
@@ -48,42 +47,18 @@ model = "MLP"
 feature = "structural"
 model = "LR"
 
-[models.structural_rf]
-feature = "structural"
-model = "RF"
-
-[models.structural_mlp]
-feature = "structural"
-model = "MLP"
-
 [models.complex_lr]
 feature = "complex"
 model = "LR"
-
-[models.complex_rf]
-feature = "complex"
-model = "RF"
-
-[models.complex_mlp]
-feature = "complex"
-model = "MLP"
 
 [models.rotate_lr]
 feature = "rotate"
 model = "LR"
 
-[models.rotate_rf]
-feature = "rotate"
-model = "RF"
-
-[models.rotate_mlp]
-feature = "rotate"
-model = "MLP"
-
 [train]
-n_iter = 3
-inner_n_folds = 3
-outer_n_folds = 5
+n_iter = 2
+inner_n_folds = 2
+outer_n_folds = 2
 shuffle = true
 refit_params = ["AUCPR", "AUCROC"]
 outdir = "models"

@@ -4,20 +4,20 @@ import string
 import optuna
 import numpy as np
 import random as rn
-import pandas as pd
 import abc
-import toml
+import joblib
 
 import wandb
 
 from torch import nn
+from torch import Tensor
 from argparse import ArgumentParser
+from dataclasses import asdict
 from pathlib import Path
 from time import time
 from collections import defaultdict
 from optuna.integration.wandb import WeightsAndBiasesCallback
-from dataclasses import dataclass
-from dataclasses import field
+
 
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
@@ -34,15 +34,14 @@ from sklearn.metrics import auc
 from collections import defaultdict
 
 from sklearn.model_selection import StratifiedKFold
-from sklearn.model_selection import RandomizedSearchCV
 from sklearn.model_selection import cross_validate
-from skorch import NeuralNet
+from sklearn.model_selection import train_test_split
 from skorch import NeuralNetClassifier
 
-from typing import Union
+from typing import Union, Tuple, Dict
 
-from bioblp.data import COL_EDGE, COL_SOURCE, COL_TARGET
-from bioblp.logger import get_logger
+from bioblp.logging import get_logger
+from bioblp.benchmarking.config import BenchmarkTrainConfig
 
 
 logger = get_logger(__name__)
@@ -51,24 +50,6 @@ logger = get_logger(__name__)
 SEED = 42
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-
-@dataclass
-class NestedCVArguments():
-    data_root: str
-    features: dict
-    models: dict
-    n_iter: int = field(default=2, metadata={"help": "Stuff"})
-    inner_n_folds: int = field(default=3)
-    outer_n_folds: int = field(default=3)
-
-    @classmethod
-    def from_toml(cls, toml_path: Union[str, Path]):
-        conf = {}
-        with open(Path(toml_path), "r") as f:
-            conf = toml.load(f)
-
-        return cls(**conf)
 
 
 def get_random_string(length):
@@ -114,8 +95,12 @@ def get_scorers():
     return scorers
 
 
-class FileResultTracker():
-    def __init__(self):
+def get_model_label(feature: str, model: str):
+    return f"{feature}__{model}"
+
+
+class ConsoleResultTracker():
+    def __init__(self, file=None):
         self.file = None
 
     def __call__(self, study, trial_i, **kwargs):
@@ -124,16 +109,16 @@ class FileResultTracker():
 
 
 class CVObjective(abc.ABC):
-    def __init__(self, X_train, y_train, cv, scoring, refit_params, run_id: Union[str, None] = None):
+    def __init__(self, X_train, y_train, cv, scoring, refit_params, run_id: Union[str, None] = None, n_jobs: int = -1):
         self.best_model = None
         self._model = None
-
         self.X_train = X_train
         self.y_train = y_train
         self.cv = cv
         self.scoring = scoring
         self.refit_params = refit_params
         self.run_id = run_id
+        self.n_jobs = n_jobs
 
     def _clf_objective(self, trial):
         raise NotImplementedError
@@ -153,7 +138,7 @@ class CVObjective(abc.ABC):
             y=self.y_train,
             scoring=self.scoring,
             cv=self.cv,
-            n_jobs=-1,
+            n_jobs=self.n_jobs,
             return_estimator=False,
             return_train_score=True,
             verbose=14,
@@ -327,25 +312,57 @@ class MLPObjective(CVObjective):
         return clf_obj
 
 
-def create_cv_objective(name, X_train, y_train, scoring, cv,
-                        refit_params=["AUCPR", "AUCROC"], run_id: Union[str, None] = None):
-    if name == "LR":
-        return LRObjective(X_train=X_train, y_train=y_train, scoring=scoring, cv=cv,
-                           refit_params=refit_params, run_id=run_id)
-    elif name == "RF":
+def create_cv_objective(name, X_train, y_train, scoring, cv, refit_params=["AUCPR", "AUCROC"],
+                        run_id: Union[str, None] = None, n_jobs: int = -1):
+    if "LR" in name:
+        return LRObjective(X_train=X_train,
+                           y_train=y_train,
+                           scoring=scoring,
+                           cv=cv,
+                           refit_params=refit_params,
+                           run_id=run_id,
+                           n_jobs=n_jobs)
+    elif "RF" in name:
+        return RFObjective(X_train=X_train,
+                           y_train=y_train,
+                           scoring=scoring,
+                           cv=cv,
+                           refit_params=refit_params,
+                           run_id=run_id,
+                           n_jobs=n_jobs)
+    elif "MLP" in name:
+        X_train, y_train = transform_model_inputs(
+            X_train, y_train, model_name=name)
+        return MLPObjective(X_train=X_train,
+                            y_train=y_train,
+                            scoring=scoring,
+                            cv=cv,
+                            refit_params=refit_params,
+                            epochs=200,
+                            run_id=run_id,
+                            n_jobs=n_jobs)
 
-        return RFObjective(X_train=X_train, y_train=y_train, scoring=scoring, cv=cv,
-                           refit_params=refit_params, run_id=run_id)
-    elif name == "MLP":
 
-        return MLPObjective(X_train=torch.tensor(X_train, dtype=torch.float32),
-                            y_train=torch.tensor(
-                                y_train, dtype=torch.float32).unsqueeze(1),
-                            scoring=scoring, cv=cv, refit_params=refit_params, epochs=200, run_id=run_id)
+def transform_model_inputs(X: np.array,
+                           y: np.array,
+                           model_name: str) -> Union[Tuple[np.array, np.array], Tuple[Tensor, Tensor]]:
+    """ Transform numpy to Tensor for MLP model. Needed because MLP in pytorch implementation.
 
+    Parameters
+    ----------
+    X : np.array
+        Feature data
+    y : np.array
+        lables
+    model_name : str
+        label for model
 
-def transform_model_inputs(X, y, model_name: str):
-    if model_name == "MLP":
+    Returns
+    -------
+    Tuple[np.array, np.array] or  Tuple[Tensor, Tensor]
+        Tensors for MLP, numpy for others.
+    """
+    if "MLP" in model_name:
         Xt = torch.tensor(X, dtype=torch.float32)
         yt = torch.tensor(y, dtype=torch.float32).unsqueeze(1)
         return Xt, yt
@@ -353,26 +370,29 @@ def transform_model_inputs(X, y, model_name: str):
     return X, y
 
 
-def run_nested_cv(candidates: list,
+def run_nested_cv(models: Dict[str, dict],
+                  data_dir: str,
                   X,
                   y,
                   scoring: dict,
+                  outdir: Path,
                   outer_n_folds: int = 5,
                   inner_n_folds: int = 2,
                   inner_n_iter: int = 10,
                   shuffle: bool = False,
                   random_state: int = SEED,
-                  n_jobs: int = 1,
+                  n_jobs: int = -1,
                   refit_params: list = ["AUCPR", "AUCROC"],
                   verbose: int = 14,
-                  outdir: Path = None,
-                  timestamp: str = None
+                  timestamp: str = None,
+                  wandb_tag: str = None
                   ) -> dict:
-    """Nested cross validation routine.
-    Inner cv loop performs hp optimization on all folds and surfaces
+    """ Nested cross validation routine.
+        Inner cv loop performs hp optimization on all folds and surfaces
+
     Parameters
     ----------
-    candidates : list
+    conf : NestedCVArguments
         list of (label)
     X : np.array
         predictor
@@ -410,7 +430,13 @@ def run_nested_cv(candidates: list,
 
     study_prefix = unique_study_prefix()
 
-    for name in candidates:
+    feature_dir = Path(data_dir)
+
+    for model_label, model_cfg in models.items():
+        model_feature = model_cfg.get("feature")
+        model_clf = model_cfg.get("model")
+
+        name = get_model_label(feature=model_feature, model=model_clf)
 
         outer_cv = StratifiedKFold(
             n_splits=outer_n_folds, shuffle=shuffle, random_state=random_state
@@ -421,7 +447,12 @@ def run_nested_cv(candidates: list,
         outer_scores[name]["curves"] = defaultdict(list)
         outer_scores[name]["params"] = []
 
+        # use raw benchmark table to perform cf split but load specific feature set
         for fold_i, (train_idx, test_idx) in enumerate(outer_cv.split(X, y)):
+
+            # load feature set
+            X_feat, y_feat = load_feature_data(
+                feature_dir.joinpath(f"{model_feature}.pt"))
 
             # generate study name based on model, fold and some random word
             study_name = generate_study_name(study_prefix, name, fold_i)
@@ -434,23 +465,36 @@ def run_nested_cv(candidates: list,
             # create objective
             objective = create_cv_objective(
                 name=name,
-                X_train=X[train_idx, :],
-                y_train=y[train_idx],
+                X_train=X_feat[train_idx, :],
+                y_train=y_feat[train_idx],
                 cv=inner_cv,
                 scoring=scoring,
                 refit_params=refit_params,
-                run_id=study_name
+                run_id=study_name,
+                n_jobs=n_jobs
             )
 
             # set calbacks
+            tags = [study_name, study_prefix, name, model_feature]
+            if wandb_tag is not None:
+                tags.append(wandb_tag)
+
             wandb_kwargs = {"project": "bioblp-dpi",
                             "entity": "discoverylab",
-                            "tags": [study_name, study_prefix, name]}
+                            "tags": tags,
+                            "config": {
+                                "model_feature": model_feature,
+                                "model_clf": model_clf,
+                                "model_name": name,
+                                "study_prefix": study_prefix,
+                                "fold_idx": fold_i
+                            }
+                            }
 
             wandb_callback = WeightsAndBiasesCallback(
                 metric_name=refit_params, wandb_kwargs=wandb_kwargs, as_multirun=True)
 
-            file_tracker_callback = FileResultTracker()
+            file_tracker_callback = ConsoleResultTracker()
 
             # perform optimisation
             study.optimize(objective, n_trials=inner_n_iter,
@@ -483,16 +527,23 @@ def run_nested_cv(candidates: list,
             logger.info(
                 f"Refitting model {name} with best params: {trial_with_highest_AUCPR.params}...")
 
-            wandb_kwargs["tags"].append("best")
-            wandb.init(
-                **wandb_kwargs, config=trial_with_highest_AUCPR.params)
-
+            # construct model from best params
             best_params_i = trial_with_highest_AUCPR.params
             model = objective.model_init(**best_params_i)
-            outer_scores[name]["params"].append(best_params_i)
+
+            # get params and store
+            model_params = objective._get_params_for(model)
+            outer_scores[name]["params"].append(model_params)
+
+            # register settings in wandb
+            wandb_kwargs["tags"].append("best")
+            wandb.init(**wandb_kwargs)
+
+            wandb_kwargs.update({"config": model_params})
+            wandb.config.update(wandb_kwargs["config"])
 
             # torch tensor transform if MLP else return same
-            X_t, y_t = transform_model_inputs(X, y, model_name=name)
+            X_t, y_t = transform_model_inputs(X_feat, y_feat, model_name=name)
 
             model.fit(X_t[train_idx, :], y_t[train_idx])
 
@@ -524,18 +575,42 @@ def run_nested_cv(candidates: list,
             for k_i, v_i in curves_i.items():
                 outer_scores[name]["curves"][k_i].append(v_i)
 
+            # store model
+            joblib.dump(model, outdir.joinpath(
+                f"{timestamp}-{study_name}-{name}.joblib"))
+
     return outer_scores
 
 
-def load_feature_data(feat_path: Union[str, Path]) -> (np.array, np.array):
+def load_feature_data(feat_path: Union[str, Path], dev_run: bool = False) -> Tuple[np.array, np.array]:
+    """ Load feature data into numpy arrays
 
-    ############
-    # Load data
-    ############
+    Parameters
+    ----------
+    feat_path : Union[str, Path]
+        Filepath to feature, eg 'features/rotate.pt'
+    dev_run : bool, optional
+        Flag to subsample data for development only, by default False
+
+    Returns
+    -------
+    Tuple[np.array, np.array]
+        Return (features, labels)
+    """
     logger.info("Loading training data...")
 
-    X = np.load(data_dir.joinpath("X.npy"))
-    y = np.load(data_dir.joinpath("y.npy"))
+    data = torch.load(feat_path)
+
+    X = data.get("X")
+    y = data.get("y")
+
+    if torch.is_tensor(X):
+        X = X.detach().numpy()
+        y = y.detach().numpy()
+
+    if dev_run:
+        X, _, y, _ = train_test_split(
+            X, y, stratify=y, train_size=0.1, random_state=12)
 
     logger.info(
         "Resulting shapes X: {}, y: {}".format(
@@ -547,60 +622,109 @@ def load_feature_data(feat_path: Union[str, Path]) -> (np.array, np.array):
     return X, y
 
 
-def run(args):
+def validate_features_exist(feature_dir: Path, models_conf: dict) -> bool:
+    """ Check if all feature files exist in directory
+
+    Parameters
+    ----------
+    feature_dir : Path
+        Path to feature location
+    models_conf : dict
+        Definition of model and feature.
+
+    Returns
+    -------
+    bool
+        True if features are present.
+    """
+    exists = {}
+
+    all_features = list(set([v.get("feature")
+                        for _, v in models_conf.items()]))
+
+    for feat in all_features:
+        exists[feat] = feature_dir.joinpath(f"{feat}.pt").is_file()
+
+    logger.info(f"Validated that features exist: {exists}..")
+
+    missing = [k for k, v in exists.items() if v is False]
+    if len(missing) > 0:
+        logger.warning(f"Missing features {missing}!!")
+
+    return all([v for _, v in exists.items()])
+
+
+def run(conf: str, n_proc: int = -1, tag: str = None, override_data_root=None, override_run_id=None, **kwargs):
     """Perform train run"""
 
     # reproducibility
     # SEED is set as global
-
-    conf_path = Path(args.conf)
-    outdir = Path(args.outdir)
-
-    conf = NestedCVArguments.from_toml(conf_path)
-
-    exp_output = defaultdict(dict)
-    exp_output["config"] = asdict(conf)
-
     start = time()
-    run_timestamp = int(start)
-
     logger.info("Starting model building script at {}.".format(start))
 
-    ############
-    # Setup classifiers & pipelines
-    ############
+    run_id = override_run_id or str(int(start))
 
-    logger.info("Config contains models {}.".format(conf.models))
+    conf_path = Path(conf)
 
-    scorer = get_scorers()
+    config = BenchmarkTrainConfig.from_toml(conf_path, run_id=run_id)
 
-    nested_cv_scores = run_nested_cv(
-        candidates=conf.models,
-        X=X_train,
-        y=y_train,
-        scoring=scorer,
-        inner_n_folds=conf.inner_n_folds,
-        inner_n_iter=conf.n_iter,
-        outer_n_folds=conf.outer_n_folds,
-        shuffle=conf.shuffle,
-        n_jobs=conf.n_proc,
-        refit_params=conf.refit_params,
-        random_state=SEED,
-        outdir=outdir,
-        timestamp=run_timestamp
-    )
+    if override_data_root is not None:
+        config.data_root = override_data_root
 
-    for algo, scores in nested_cv_scores.items():
-        logger.info("Scores {}: {}".format(algo, scores))
+    feature_dir = config.resolve_feature_dir()
 
-    exp_output["results"] = nested_cv_scores
+    models_out = config.resolve_outdir()
+    models_out.mkdir(parents=True, exist_ok=True)
 
-    logger.info(exp_output)
+    exp_output = defaultdict(dict)
+    exp_output["config"] = asdict(config)
 
-    file_out = out_dir.joinpath(
-        "nested_cv_scores_{}.npy".format(run_timestamp))
-    logger.info("Saving to {}".format(file_out))
-    np.save(file_out, exp_output)
+    if validate_features_exist(feature_dir=feature_dir,
+                               models_conf=config.models):
+
+        ############
+        # Setup classifiers & pipelines
+        ############
+
+        X_bm, y_bm = load_feature_data(
+            feature_dir.joinpath("raw.pt"), dev_run=kwargs["dev_run"])
+
+        logger.info("Config contains models {}.".format(config.models))
+
+        scorer = get_scorers()
+
+        nested_cv_scores = run_nested_cv(
+            models=config.models,
+            data_dir=feature_dir,
+            X=X_bm,
+            y=y_bm,
+            scoring=scorer,
+            inner_n_folds=config.inner_n_folds,
+            inner_n_iter=config.n_iter,
+            outer_n_folds=config.outer_n_folds,
+            shuffle=config.shuffle,
+            n_jobs=n_proc,
+            refit_params=config.refit_params,
+            random_state=SEED,
+            outdir=models_out,
+            timestamp=run_id,
+            wandb_tag=tag
+        )
+
+        for algo, scores in nested_cv_scores.items():
+            logger.info("Scores {}: {}".format(algo, scores))
+
+        exp_output["results"] = nested_cv_scores
+
+        logger.info(exp_output)
+
+        file_out = models_out.joinpath(
+            "nested_cv_scores_{}.npy".format(run_id))
+        logger.info("Saving to {}".format(file_out))
+        np.save(file_out, exp_output)
+
+    else:
+        logger.warning(f"Terminating...")
 
     end = time()
 
@@ -611,10 +735,17 @@ if __name__ == "__main__":
     parser = ArgumentParser(description="Run model training procedure")
     parser.add_argument("--conf", type=str,
                         help="Path to experiment configuration")
-    parser.add_argument("--outdir", type=str, help="Path to write output")
-    # parser.add_argument(
-    #     "--n_proc", type=int, default=1, help="Number of cores to use in process."
-    # )
+    parser.add_argument("--override_data_root", type=str,
+                        help="Path to root of data tree")
+    parser.add_argument("--override_run_id", type=str,
+                        help="Run id of experiment")
+    parser.add_argument(
+        "--n_proc", type=int, default=-1, help="Number of cores to use in process."
+    )
+    parser.add_argument("--tag", type=str,
+                        help="Optional tag to add to wand runs")
+    parser.add_argument("--dev_run", action='store_true',
+                        help="Quick dev run")
     # parser.add_argument(
     #     "--n_iter", type=int, default=2, help="Number of iterations in HPO in inner cv."
     # )
@@ -626,4 +757,5 @@ if __name__ == "__main__":
     # )
 
     args = parser.parse_args()
-    run(args)
+    # run(args)
+    run(**vars(args))
