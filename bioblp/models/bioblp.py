@@ -1,7 +1,7 @@
 import os.path as osp
 from typing import Optional
 
-from pykeen.models import RotatE
+import pykeen.models
 from pykeen.nn.representation import Embedding as PyKEmbedding
 from pykeen.typing import InductiveMode
 import torch
@@ -9,8 +9,7 @@ import torch
 from bioblp.models.encoders import PropertyEncoderRepresentation
 
 
-# TODO: Generalize to other models
-class BioBLP(RotatE):
+class BioBLP:
     def __init__(self, *,
                  entity_representations: PropertyEncoderRepresentation,
                  from_checkpoint: str = None,
@@ -78,3 +77,30 @@ class BioBLP(RotatE):
         negative_scores = negative_scores.reshape(batch_size, num_negatives)
 
         return positive_scores, negative_scores
+
+
+class BioBLPTransE(BioBLP, pykeen.models.TransE):
+    ...
+
+
+class BioBLPComplEx(BioBLP, pykeen.models.ComplEx):
+    ...
+
+
+class BioBLPRotatE(BioBLP, pykeen.models.RotatE):
+    ...
+
+
+MODELS_DICT = {
+    'transe': BioBLPTransE,
+    'complex': BioBLPComplEx,
+    'rotate': BioBLPRotatE
+}
+
+
+def get_model_class(model_name: str):
+    if model_name in MODELS_DICT:
+        return MODELS_DICT[model_name]
+    else:
+        raise ValueError(f'Unknown model f{model_name}')
+

@@ -8,7 +8,7 @@ from pykeen.triples import TriplesFactory
 from time import time
 from typing import Union
 
-from bioblp.logging import get_logger
+from bioblp.logger import get_logger
 from bioblp.data import COL_EDGE, COL_SOURCE, COL_TARGET
 
 logger = get_logger(__name__)
