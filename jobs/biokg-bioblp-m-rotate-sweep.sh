@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=biokg-rotate-sweep
+#SBATCH --job-name=biokg-bioblp-m-rotate-sweep
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=18
 #SBATCH --time=72:00:00
