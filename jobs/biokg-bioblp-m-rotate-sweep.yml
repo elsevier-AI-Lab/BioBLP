@@ -1,0 +1,33 @@
+entity: discoverylab
+project: bioblp
+program: bioblp.train
+method: random
+metric:
+  name: validation.both.realistic.inverse_harmonic_mean_rank
+  goal: maximize
+parameters:
+  model:
+    value: rotate
+  loss_fn:
+    value: crossentropy
+  learning_rate:
+    distribution: log_uniform_values
+    min: 1e-3
+    max: 1.0
+  regularizer:
+    distribution: log_uniform_values
+    min: 1e-6
+    max: 1e-3
+command:
+  - ${env}
+  - python
+  - "-m"
+  - ${program}
+  - '--train_triples=data/biokgb/graph/biokg.links-train.csv'
+  - '--valid_triples=data/biokgb/graph/biokg.links-valid.csv'
+  - '--test_triples=data/biokgb/graph/biokg.links-test.csv'
+  - '--search_eval_batch_size=True'
+  - '--molecule_data=data/biokgb/properties/molecule_moltrans_embeddings.pt'
+  - '--log_wandb=True'
+  - '--notes=BioBLP-M RotatE sweep'
+  - ${args}
