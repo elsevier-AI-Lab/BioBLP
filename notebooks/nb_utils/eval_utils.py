@@ -1,6 +1,7 @@
 import pandas as pd
 from pykeen.triples import TriplesFactory
 from pykeen.evaluation import RankBasedEvaluator
+from tqdm import tqdm
 import wandb
 
 ###### Define CONSTANTS ######
@@ -73,8 +74,53 @@ def run_experiment_and_log_wandb(study_name:str,
 
 ##### evaluation logic ##### 
 
+def evaluate_lp_all_rels_on_single_test_set(model, 
+                                            eval_test_set_slug,
+                                            eval_triples=None,
+                                            train_triples=None,
+                                            valid_triples=None,                                            
+                                           ):
+            
+    evaluator = RankBasedEvaluator(filtered=True)   
+    # should we filtering more triples in the disease restricted test sets?
+    filtered_triples = obtain_filtered_triples(test_type=eval_test_set_slug, 
+                                               train_triples=train_triples,
+                                               valid_triples=valid_triples
+                                              )
+    eval_result = evaluator.evaluate(model, eval_triples.mapped_triples, 
+                                     additional_filter_triples = filtered_triples)
+    
+    results_all_rels = make_results_dict_all_rel(eval_result, 
+                                         relation='All', 
+                                         relation_count=eval_triples.num_triples)
+    return results_all_rels
 
-        
+
+def evaluate_lp_relwise_on_single_test_set(model,
+                                            eval_test_set_slug,
+                                            eval_triples=None,
+                                            train_triples=None,
+                                            valid_triples=None,                                              
+                                           ):
+    evaluator = RankBasedEvaluator(filtered=True)   
+    result_dicts =[]
+    test_triples = eval_triples  # triples_dict[eval_test_set_slug]
+    additional_filter_triples = obtain_filtered_triples(test_type=eval_test_set_slug, 
+                                                        train_triples=train_triples,
+                                                        valid_triples=valid_triples
+                                                       )
+    for relation in tqdm(list(train_triples.relation_to_id)[:], desc='Evaluating over each relation'):
+        triples_subset = test_triples.new_with_restriction(relations=[relation])
+        if triples_subset.num_triples > 0:
+            subset_result = evaluator.evaluate(model,
+                                               triples_subset.mapped_triples, 
+                                               additional_filter_triples=additional_filter_triples,
+                                               use_tqdm=False)
+            result_dicts.append({'results': subset_result, 'relation': relation, 'count': triples_subset.num_triples})
+    results_df = pd.DataFrame([make_results_dict_all_rel(d['results'], d['relation'], d['count']) for d in result_dicts])
+    rel_results_dict = results_df.set_index('Relation').transpose().to_dict()
+    return rel_results_dict
+
 
 ##### format evaluation metrics #####
 
@@ -94,12 +140,9 @@ def make_results_dict_all_rel(results, relation, relation_count,
     return results_dict
 
 def make_results_dict_rel_breakdown(results, relation, relation_count,
-                      triple_endpoint="both",
-                      metric_type = "realistic"):
-    
-    metrics_shortlist=["arithmetic_mean_rank", "adjusted_arithmetic_mean_rank", 
-                       "inverse_harmonic_mean_rank", "hits_at_1",
-                       "hits_at_3", "hits_at_5", "hits_at_10"]
+                                    triple_endpoint="both",
+                                    metric_type = "realistic",
+                                    metrics_shortlist=EVAL_METRICS_SHORTLIST):
     if not relation:
         relation= 'All'
     results = results.to_dict()
@@ -154,3 +197,28 @@ def obtain_filtered_triples(test_type, train_triples, valid_triples):
     elif test_type == TEST:
         filtered_triples = [train_triples.mapped_triples, valid_triples.mapped_triples]
     return filtered_triples
+
+
+###### node degree analysis utils ###### 
+
+def _compute_node_degrees_unidirectional(triple_df, node_endpoint_type):
+    node_endpoint2degree_type = {COL_SOURCE: OUT_DEGREE,
+                                     COL_TARGET: IN_DEGREE}
+    degree_df = triple_df.groupby(node_endpoint_type)[COL_EDGE].agg("count").reset_index()
+    degree_df.rename(columns={node_endpoint_type: COL_NODE, 
+                              COL_EDGE: node_endpoint2degree_type.get(node_endpoint_type)}, 
+                     inplace=True)
+    return degree_df
+
+def compute_node_degrees_in_out(triple_df):    
+    # get out degrees by counting all outgoing edges (node=source)
+    out_degree_df = _compute_node_degrees_unidirectional(triple_df, node_endpoint_type=COL_SOURCE)
+    # get in degrees by counting all incoming edges (node=target)    
+    in_degree_df = _compute_node_degrees_unidirectional(triple_df, node_endpoint_type=COL_TARGET)
+    
+    # combine in and out degrees for each node
+    node_degree_df = out_degree_df.merge(in_degree_df, on=COL_NODE, how="outer")
+    node_degree_df = node_degree_df.fillna(0)
+    node_degree_df[DEGREE] = node_degree_df[IN_DEGREE]+node_degree_df[OUT_DEGREE]
+    node_degree_df = node_degree_df.fillna(0)
+    return node_degree_df
