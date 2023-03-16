@@ -3,12 +3,13 @@ import os.path as osp
 from pykeen.pipeline import pipeline
 from pykeen.training import TrainingCallback
 from pykeen.triples import TriplesFactory
+
 from tap import Tap
 from transformers import get_linear_schedule_with_warmup
 import wandb
 
-from bioblp.logging import get_logger
-from bioblp.models import BioBLP
+from bioblp.logger import get_logger
+import bioblp.models as models
 from bioblp.utils.bioblp_utils import build_encoders
 from bioblp.utils.training import InBatchNegativesTraining
 
@@ -120,10 +121,11 @@ def run(args: Arguments):
     model_kwargs = {'embedding_dim': args.dimension, 'loss': args.loss_fn}
 
     if any((args.protein_data, args.molecule_data, args.text_data)):
-        model = BioBLP
+        model = models.get_model_class(args.model)
         dimension = args.dimension
         if args.model in ('complex', 'rotate'):
             dimension *= 2
+
         encoders = build_encoders(dimension,
                                   training.entity_to_id,
                                   args.protein_data,
@@ -171,7 +173,7 @@ def run(args: Arguments):
                           'evaluation_batch_size': args.eval_batch_size,
                           'metric': args.early_stopper,
                           'frequency': args.eval_every,
-                          'patience': 5,
+                          'patience': 10,
                           'relative_delta': 0.0001,
                           'larger_is_better': True
                       },

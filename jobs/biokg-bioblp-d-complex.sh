@@ -1,8 +1,8 @@
 #!/bin/bash
-#SBATCH --job-name=complex
+#SBATCH --job-name=bioblp-d-complex
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=18
-#SBATCH --time=10:00:00
+#SBATCH --time=24:00:00
 #SBATCH --mem=16G
 #SBATCH --partition=gpu
 #SBATCH --gpus=1
@@ -22,17 +22,20 @@ python -m bioblp.train \
         --train_triples=data/biokgb/graph/biokg.links-train.csv \
         --valid_triples=data/biokgb/graph/biokg.links-valid.csv \
         --test_triples=data/biokgb/graph/biokg.links-test.csv \
+        --text_data=data/biokgb/properties/biokg_meshid_to_descr_name.tsv \
         --model=complex \
         --dimension=256 \
-        --loss_fn=bcewithlogits \
-        --learning_rate=0.3595182058943781 \
-        --regularizer=3.7579365087382533e-05 \
+        --loss_fn=crossentropy \
+        --optimizer=adam \
+        --learning_rate=2e-5 \
+        --warmup_fraction=0.05 \
         --num_epochs=100 \
-        --batch_size=256 \
+        --batch_size=1024 \
         --eval_batch_size=64 \
         --num_negatives=512 \
+        --in_batch_negatives=True \
         --log_wandb=True \
-        --notes="ComplEx best hparams, rep"
+        --notes="ComplEx BioBLP-D CE loss"
 
 # Keep files generated during job
 RESULTS_FOLDER=$HOME/$PROJ_FOLDER-$OUT_FOLDER

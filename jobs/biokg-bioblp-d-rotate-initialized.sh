@@ -36,7 +36,7 @@ python -m bioblp.train \
         --in_batch_negatives=True \
         --from_checkpoint=models/36viovqn \
         --log_wandb=True \
-        --notes="BioBLP-D initialized with 36viovqn"
+        --notes="RotatE BioBLP-D initialized with 36viovqn, higher patience"
 
 # Keep files generated during job
 RESULTS_FOLDER=$HOME/$PROJ_FOLDER-$OUT_FOLDER

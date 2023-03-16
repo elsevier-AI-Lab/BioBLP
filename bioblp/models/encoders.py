@@ -216,11 +216,14 @@ class PropertyEncoderRepresentation(nn.Module):
             lookup_table=lookup_table,
             encoder_modules=self
         )
+        # Guarantee that the initial state of the embeddings buffer is the same
+        # as the initialization values in the lookup table
+        self.embeddings_buffer = lookup_table._embeddings.weight.data.clone()
 
     @staticmethod
     def encode_entities(lookup_table: PyKEmbedding,
-                        indices: Optional[torch.LongTensor],
-                        encoder_modules: 'PropertyEncoderRepresentation'
+                        encoder_modules: 'PropertyEncoderRepresentation',
+                        indices: Optional[torch.LongTensor] = None
                         ) -> Optional[torch.Tensor]:
         # This method is adapted from
         # pykeen.nn.representation.Embedding._plain_forward
@@ -230,6 +233,12 @@ class PropertyEncoderRepresentation(nn.Module):
             # so we pass the buffer of embeddings of all entities
             prefix_shape = (lookup_table.max_id,)
             x = encoder_modules.embeddings_buffer
+
+            # Make sure that the buffer is up-to-date with the latest state
+            # of lookup table embeddings
+            not_encoded_idx = encoder_modules.unspecified_type_id
+            not_encoded = encoder_modules.entity_types == not_encoded_idx
+            x[not_encoded] = lookup_table._embeddings.weight.data[not_encoded]
         else:
             prefix_shape = indices.shape
             if encoder_modules.training:
@@ -257,8 +266,12 @@ class PropertyEncoderRepresentation(nn.Module):
                     else:
                         embeddings = lookup_table._embeddings(entities.to(device))
 
+                    if lookup_table.constrainer is not None:
+                        embeddings = lookup_table.constrainer(embeddings)
+
                     x[entity_type_mask] = embeddings
-                    encoder_modules.embeddings_buffer[indices] = x.detach()
+
+                encoder_modules.embeddings_buffer[indices] = x.detach()
             else:
                 x = encoder_modules.embeddings_buffer[indices]
 
