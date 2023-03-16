@@ -40,7 +40,7 @@ from skorch import NeuralNetClassifier
 
 from typing import Union, Tuple, Dict
 
-from bioblp.logging import get_logger
+from bioblp.logger import get_logger
 from bioblp.benchmarking.config import BenchmarkTrainConfig
 
 

@@ -1,6 +1,6 @@
 import torch
 import json
-
+import pykeen
 import pandas as pd
 import numpy as np
 
@@ -14,7 +14,7 @@ from tqdm import tqdm
 
 from typing import Tuple, List, Dict
 
-from bioblp.logging import get_logger
+from bioblp.logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -29,6 +29,7 @@ STRUCTURAL = "structural"
 COMPLEX = "complex"
 TRANSE = "transe"
 ROTATE = "rotate"
+BIOBLPD = "bioblpd"
 LABEL = "label"
 
 
@@ -390,7 +391,10 @@ class KGEMEncoder(EntityEncoder):
             entity_idxs = torch.LongTensor(entity2id_df["id"].values)
             entity_to_idx = entity_to_kgid
 
-        embs = model.entity_representations[0]._embeddings(entity_idxs)
+        if type(model) == pykeen.models.TransE:
+            embs = model.entity_embeddings._embeddings(entity_idxs)
+        else:
+            embs = model.entity_representations[0]._embeddings(entity_idxs)
 
         return cls(embeddings=embs, entity_to_id=entity_to_idx)
 
@@ -599,5 +603,5 @@ def get_encoder(encoder_label: str, encoder_args: Dict[str, dict], entities: Lis
         return RandomNoisePairEncoder(entities=entities, **encoder_args)
     elif encoder_label == STRUCTURAL:
         return StructuralPairEncoder(**encoder_args)
-    elif encoder_label in {COMPLEX, TRANSE, ROTATE}:
+    elif encoder_label in {COMPLEX, TRANSE, ROTATE, BIOBLPD}:
         return KGEMPairEncoder(**encoder_args)

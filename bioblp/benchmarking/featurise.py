@@ -17,7 +17,7 @@ from tqdm import tqdm
 
 from typing import Tuple, List, Dict
 
-from bioblp.logging import get_logger
+from bioblp.logger import get_logger
 from bioblp.benchmarking.encoders import get_encoder
 from bioblp.benchmarking.encoders import MissingValueMethod
 from bioblp.benchmarking.encoders import EntityPairEncoder

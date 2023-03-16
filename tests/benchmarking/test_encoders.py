@@ -19,7 +19,7 @@ from bioblp.benchmarking.encoders import get_random_tensor
 from bioblp.benchmarking.encoders import get_encoder
 
 
-from bioblp.logging import get_logger
+from bioblp.logger import get_logger
 
 logger = get_logger(__name__)
 

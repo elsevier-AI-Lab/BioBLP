@@ -9,7 +9,7 @@ from bioblp.benchmarking.config import BenchmarkFeatureConfig
 from bioblp.benchmarking.config import BenchmarkTrainConfig
 
 
-from bioblp.logging import get_logger
+from bioblp.logger import get_logger
 
 
 logger = get_logger(__name__)
