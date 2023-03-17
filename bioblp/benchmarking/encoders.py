@@ -14,6 +14,9 @@ from tqdm import tqdm
 
 from typing import Tuple, List, Dict
 
+from bioblp.models.bioblp import BioBLPTransE
+from bioblp.models.bioblp import BioBLPComplEx
+from bioblp.models.bioblp import BioBLPRotatE
 from bioblp.logger import get_logger
 
 logger = get_logger(__name__)
@@ -393,6 +396,8 @@ class KGEMEncoder(EntityEncoder):
 
         if type(model) == pykeen.models.TransE:
             embs = model.entity_embeddings._embeddings(entity_idxs)
+        elif type(model) in [BioBLPTransE, BioBLPComplEx, BioBLPRotatE]:
+            embs = model.property_encoder.embeddings_buffer[entity_idxs]
         else:
             embs = model.entity_representations[0]._embeddings(entity_idxs)
 
