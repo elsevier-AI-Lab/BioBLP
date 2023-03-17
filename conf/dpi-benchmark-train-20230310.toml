@@ -5,14 +5,13 @@ experiment_root = "data/benchmarks/experiments/dpi_fda/"
 [sampling]
 outdir = "sampled"
 num_negs_per_pos = 10
-kg_triples_dir = "data/benchmarks/backbone_kg/"
+kg_triples_dir = "data/benchmarks/experiments/encoders/rotate/training_triples/"
 
 [features]
 outdir = "features"
 transform = "concat"
-missing_values = "random"
-encoders = ["structural", "complex", "rotate", "noise"]
-
+missing_values = "mean"
+encoders = ["noise", "structural", "complex", "rotate", "transe", "bioblpd" ]
 
 [features.encoder_args.noise]
 random_seed = 24
@@ -30,19 +29,23 @@ model_dir = "data/benchmarks/experiments/encoders/rotate/"
 [features.encoder_args.transe]
 model_dir = "data/benchmarks/experiments/encoders/transe/"
 
+[features.encoder_args.bioblpd]
+model_dir = "data/benchmarks/experiments/encoders/bioblpd/"
+
 [models]
 
 [models.noise_lr]
 feature = "noise"
 model = "LR"
 
+[models.noise_mlp]
+feature = "noise"
+model = "MLP"
+
 [models.noise_rf]
 feature = "noise"
 model = "RF"
 
-[models.noise_mlp]
-feature = "noise"
-model = "MLP"
 
 [models.structural_lr]
 feature = "structural"
@@ -56,6 +59,20 @@ model = "RF"
 feature = "structural"
 model = "MLP"
 
+
+[models.transe_lr]
+feature = "transe"
+model = "LR"
+
+[models.transe_rf]
+feature = "transe"
+model = "RF"
+
+[models.transe_mlp]
+feature = "transe"
+model = "MLP"
+
+
 [models.complex_lr]
 feature = "complex"
 model = "LR"
@@ -67,6 +84,7 @@ model = "RF"
 [models.complex_mlp]
 feature = "complex"
 model = "MLP"
+
 
 [models.rotate_lr]
 feature = "rotate"
@@ -80,8 +98,21 @@ model = "RF"
 feature = "rotate"
 model = "MLP"
 
+
+[models.bioblpd_lr]
+feature = "bioblpd"
+model = "LR"
+
+[models.bioblpd_rf]
+feature = "bioblpd"
+model = "RF"
+
+[models.bioblpd_mlp]
+feature = "bioblpd"
+model = "MLP"
+
 [train]
-n_iter = 3
+n_iter = 5
 inner_n_folds = 3
 outer_n_folds = 5
 shuffle = true
