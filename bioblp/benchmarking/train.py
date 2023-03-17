@@ -37,7 +37,8 @@ from sklearn.model_selection import StratifiedKFold
 from sklearn.model_selection import cross_validate
 from sklearn.model_selection import train_test_split
 from skorch import NeuralNetClassifier
-
+from skorch.callbacks import EarlyStopping
+from skorch.callbacks import EpochScoring
 from typing import Union, Tuple, Dict
 
 from bioblp.logger import get_logger
@@ -286,6 +287,16 @@ class MLPObjective(CVObjective):
         return params
 
     def model_init(self, **kwargs):
+        aucpr_scorer = get_scorers().get("AUCPR")
+
+        scorer_callback = EpochScoring(
+            aucpr_scorer, lower_is_better=False, on_train=False, name="valid_AUCPR")
+        early_stopping = EarlyStopping(monitor="valid_AUCPR",
+                                       patience=10,
+                                       threshold=0.001,
+                                       threshold_mode="rel",
+                                       lower_is_better=False)
+
         net = NeuralNetClassifier(
             module=MLP,
             module__input_dims=self.X_train.shape[1],
@@ -294,10 +305,10 @@ class MLPObjective(CVObjective):
             criterion=nn.BCEWithLogitsLoss,
             optimizer=torch.optim.Adagrad,
             batch_size=128,
-            train_split=None,
-            callbacks=[],
+            # train_split=0.8,
+            callbacks=[scorer_callback, early_stopping],
             device=DEVICE,
-            **kwargs,
+            ** kwargs,
         )
 
         return net
@@ -313,7 +324,7 @@ class MLPObjective(CVObjective):
 
 
 def create_cv_objective(name, X_train, y_train, scoring, cv, refit_params=["AUCPR", "AUCROC"],
-                        run_id: Union[str, None] = None, n_jobs: int = -1):
+                        run_id: Union[str, None] = None, n_jobs: int = 1):
     if "LR" in name:
         return LRObjective(X_train=X_train,
                            y_train=y_train,
@@ -338,7 +349,7 @@ def create_cv_objective(name, X_train, y_train, scoring, cv, refit_params=["AUCP
                             scoring=scoring,
                             cv=cv,
                             refit_params=refit_params,
-                            epochs=200,
+                            epochs=400,
                             run_id=run_id,
                             n_jobs=n_jobs)
 
