@@ -1,5 +1,6 @@
 import os.path as osp
 from typing import Optional
+from typing import Tuple
 
 import pykeen.models
 from pykeen.nn.representation import Embedding as PyKEmbedding
@@ -36,7 +37,7 @@ class BioBLP:
                                 hrt_batch: torch.LongTensor,
                                 num_negatives: int,
                                 *, mode: Optional[InductiveMode] = None
-                                ) -> tuple[torch.FloatTensor, torch.FloatTensor]:
+                                ) -> Tuple[torch.FloatTensor, torch.FloatTensor]:
         batch_size = hrt_batch.shape[0]
 
         h, r, t = self._get_representations(h=hrt_batch[:, 0],

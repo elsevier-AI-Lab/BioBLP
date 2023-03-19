@@ -6,6 +6,7 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 from transformers import AutoTokenizer, AutoModel
+from typing import Tuple
 
 from ..loaders.preprocessors import (TextEntityPropertyPreprocessor,
                                      MolecularFingerprintPreprocessor,
