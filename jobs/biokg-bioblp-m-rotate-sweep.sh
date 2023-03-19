@@ -2,7 +2,7 @@
 #SBATCH --job-name=biokg-bioblp-m-rotate-sweep
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=18
-#SBATCH --time=72:00:00
+#SBATCH --time=01:00:00
 #SBATCH --mem=16G
 #SBATCH --partition=gpu
 #SBATCH --gpus=1
@@ -17,7 +17,7 @@ cd $TMPDIR/$PROJ_FOLDER
 source activate bioblp
 
 git checkout freeze-embeddings
-wandb agent --count 1 discoverylab/bioblp/3gvh1mq2
+wandb agent --count 1 discoverylab/bioblp/liqycjns
 
 # Keep files generated during job
 RESULTS_FOLDER=$HOME/$PROJ_FOLDER-$OUT_FOLDER
