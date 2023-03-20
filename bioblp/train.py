@@ -29,6 +29,7 @@ class Arguments(Tap):
     loss_margin: float = 1.0
     optimizer: str = 'adagrad'
     learning_rate: float = 1e-2
+    freeze_pretrained_embeddings: bool = False
     warmup_fraction: float = None
     regularizer: float = 1e-6
     num_epochs: int = 100
@@ -126,11 +127,13 @@ def run(args: Arguments):
         if args.model in ('complex', 'rotate'):
             dimension *= 2
 
+        freeze_pretrained_embeddings = args.freeze_pretrained_embeddings
         encoders = build_encoders(dimension,
                                   training.entity_to_id,
                                   args.protein_data,
                                   args.molecule_data,
-                                  args.text_data)
+                                  args.text_data,
+                                  freeze_pretrained_embeddings)
         model_kwargs['entity_representations'] = encoders
 
         if args.from_checkpoint:
@@ -173,7 +176,7 @@ def run(args: Arguments):
                           'evaluation_batch_size': args.eval_batch_size,
                           'metric': args.early_stopper,
                           'frequency': args.eval_every,
-                          'patience': 10,
+                          'patience': 5,
                           'relative_delta': 0.0001,
                           'larger_is_better': True
                       },

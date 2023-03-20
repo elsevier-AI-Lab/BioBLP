@@ -7,7 +7,8 @@ def build_encoders(dim: int,
                    entity_to_id: Mapping[str, int],
                    protein_data: str = None,
                    molecule_data: str = None,
-                   text_data: str = None
+                   text_data: str = None,
+                   freeze_pretrained_embeddings: bool = False
                    ) -> encoders.PropertyEncoderRepresentation:
     if not any((protein_data, molecule_data, text_data)):
         raise ValueError("No entity data provided to build encoders.")
@@ -17,7 +18,8 @@ def build_encoders(dim: int,
     if protein_data:
         protein_encoder = encoders.PretrainedLookupTableEncoder(
             file_path=protein_data,
-            dim=dim
+            dim=dim,
+            freeze_pretrained_embeddings=freeze_pretrained_embeddings
         )
         encoders_list.append(protein_encoder)
 
