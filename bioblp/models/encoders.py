@@ -28,6 +28,11 @@ class PropertyEncoder(nn.Module):
     def forward(self, data: Tensor, device: torch.device) -> Tensor:
         raise NotImplementedError
 
+    def encode_new_entities(self,
+                            new_entities: list,
+                            new_data):
+        pass
+
 
 class LookupTableEncoder(PropertyEncoder):
     """A lookup table encoder for entities without properties."""
@@ -63,6 +68,11 @@ class PretrainedLookupTableEncoder(PropertyEncoder):
         embs = self.embeddings(indices.to(device))
         embs = self.linear(embs)
         return embs
+
+    def encode_new_entities(self,
+                            new_entities: list,
+                            new_data):
+        pass
 
 
 class MolecularFingerprintEncoder(PropertyEncoder):
@@ -169,7 +179,7 @@ class PropertyEncoderRepresentation(nn.Module):
     potentially different encoder.
     """
     def __init__(self, dim: int, entity_to_id: Mapping[str, int],
-                 encoders: Iterable[nn.Module]):
+                 encoders: Iterable[PropertyEncoder]):
         num_entities = len(entity_to_id)
 
         super().__init__()
@@ -281,3 +291,29 @@ class PropertyEncoderRepresentation(nn.Module):
         # verify that contiguity is preserved
         assert x.is_contiguous()
         return x
+
+    def register_new_entities(self,
+                              new_entity_ids: list,
+                              new_entity_data: Iterable,
+                              updated_entity_to_id: dict[str, int],
+                              encoder_type: int):
+        if encoder_type not in self.type_id_to_encoder:
+            raise ValueError(f'Unknown encoder type {encoder_type}.')
+        if encoder_type == self.unspecified_type_id:
+            raise ValueError(f'Cannot register new entities for default'
+                             f' type {encoder_type}. This type uses lookup'
+                             f' table embeddings.')
+
+        # Update mapping from entity ID to encoder type
+        new_entity_types = torch.full([len(new_entity_ids)],
+                                      fill_value=encoder_type)
+        self.entity_types = torch.cat([self.entity_types,
+                                       new_entity_types])
+
+        # Encode entities, and update mappings
+        # - ID to data
+        # - ID to index in data
+        encoder = self.type_id_to_encoder[encoder_type]
+
+
+
