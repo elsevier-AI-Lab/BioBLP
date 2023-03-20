@@ -6,6 +6,7 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 from transformers import AutoTokenizer, AutoModel
+from tqdm import tqdm
 
 from ..loaders.preprocessors import (TextEntityPropertyPreprocessor,
                                      MolecularFingerprintPreprocessor,
@@ -27,11 +28,6 @@ class PropertyEncoder(nn.Module):
 
     def forward(self, data: Tensor, device: torch.device) -> Tensor:
         raise NotImplementedError
-
-    def encode_new_entities(self,
-                            new_entities: list,
-                            new_data):
-        pass
 
 
 class LookupTableEncoder(PropertyEncoder):
@@ -74,10 +70,10 @@ class PretrainedLookupTableEncoder(PropertyEncoder):
         embs = self.linear(embs)
         return embs
 
-    def encode_new_entities(self,
-                            new_entities: list,
-                            new_data):
-        pass
+    def forward_from_embeddings(self, embeddings: Tensor,
+                                device: torch.device
+                                ) -> Tensor:
+        return self.linear(embeddings.to(device))
 
 
 class MolecularFingerprintEncoder(PropertyEncoder):
@@ -183,6 +179,8 @@ class PropertyEncoderRepresentation(nn.Module):
     of entity properties. Supports heterogeneous properties each with a
     potentially different encoder.
     """
+    embeddings_buffer: Tensor
+
     def __init__(self, dim: int, entity_to_id: Mapping[str, int],
                  encoders: Iterable[PropertyEncoder]):
         num_entities = len(entity_to_id)
@@ -239,20 +237,22 @@ class PropertyEncoderRepresentation(nn.Module):
     def encode_entities(lookup_table: PyKEmbedding,
                         encoder_modules: 'PropertyEncoderRepresentation',
                         indices: Optional[torch.LongTensor] = None
-                        ) -> Optional[torch.Tensor]:
+                        ) -> Optional[Tensor]:
         # This method is adapted from
         # pykeen.nn.representation.Embedding._plain_forward
+        # (as of PyKEEN v1.9.0)
 
         if indices is None:
             # Here we assume that if indices is None, we are not training,
             # so we pass the buffer of embeddings of all entities
-            prefix_shape = (lookup_table.max_id,)
+            prefix_shape = (encoder_modules.embeddings_buffer.shape[0],)
             x = encoder_modules.embeddings_buffer
 
             # Make sure that the buffer is up-to-date with the latest state
             # of lookup table embeddings
             not_encoded_idx = encoder_modules.unspecified_type_id
             not_encoded = encoder_modules.entity_types == not_encoded_idx
+            not_encoded = not_encoded.nonzero().squeeze()
             x[not_encoded] = lookup_table._embeddings.weight.data[not_encoded]
         else:
             prefix_shape = indices.shape
@@ -297,11 +297,13 @@ class PropertyEncoderRepresentation(nn.Module):
         assert x.is_contiguous()
         return x
 
+    @torch.inference_mode()
     def register_new_entities(self,
                               new_entity_ids: list,
-                              new_entity_data: Iterable,
-                              updated_entity_to_id: dict[str, int],
-                              encoder_type: int):
+                              new_entity_data: Tensor,
+                              encoder_type: int,
+                              batch_size: int,
+                              device: torch.device):
         if encoder_type not in self.type_id_to_encoder:
             raise ValueError(f'Unknown encoder type {encoder_type}.')
         if encoder_type == self.unspecified_type_id:
@@ -309,16 +311,30 @@ class PropertyEncoderRepresentation(nn.Module):
                              f' type {encoder_type}. This type uses lookup'
                              f' table embeddings.')
 
-        # Update mapping from entity ID to encoder type
-        new_entity_types = torch.full([len(new_entity_ids)],
-                                      fill_value=encoder_type)
-        self.entity_types = torch.cat([self.entity_types,
-                                       new_entity_types])
+        num_buffer_embeddings = self.embeddings_buffer.shape[0]
+        if len(set(range(num_buffer_embeddings)).intersection(set(new_entity_ids))) > 0:
+            raise ValueError(f'There are already embeddings for some'
+                             f' of the alleged new_entity_ids')
 
-        # Encode entities, and update mappings
-        # - ID to data
-        # - ID to index in data
+        # Encode new entities and add them to the buffer
         encoder = self.type_id_to_encoder[encoder_type]
-
-
-
+        self.embeddings_buffer = torch.cat([self.embeddings_buffer,
+                                            torch.empty([len(new_entity_ids),
+                                                         self.dim],
+                                                        dtype=torch.float,
+                                                        device=device)])
+        i = 0
+        bar = tqdm(new_entity_ids,
+                   desc=f'Encoding new entities with'
+                        f' {encoder.__class__.__name__}')
+        while i < len(new_entity_ids):
+            entities = new_entity_ids[i:i + batch_size]
+            sample = new_entity_data[i:i + batch_size]
+            if isinstance(encoder, PretrainedLookupTableEncoder):
+                x = encoder.forward_from_embeddings(sample, device=device)
+            else:
+                x = encoder(sample, device=device)
+            self.embeddings_buffer[entities] = x
+            i += batch_size
+            bar.update(len(entities))
+        bar.close()
