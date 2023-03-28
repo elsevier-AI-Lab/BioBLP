@@ -10,21 +10,22 @@ parameters:
     value: rotate
   loss_fn:
     value: crossentropy
-  freeze_pretrained_embeddings:
-    value: true
+  optimizer:
+    value: adagrad
   learning_rate:
     distribution: log_uniform_values
     min: 1e-3
-    max: 1.0
+    max: 1e-1
   regularizer:
     distribution: log_uniform_values
     min: 1e-6
     max: 1e-3
   batch_size:
-    values:
-      - 128
-      - 256
-      - 512
+    value: 1024
+  eval_batch_size:
+    value: 64
+  in_batch_negatives:
+    value: true
 command:
   - ${env}
   - python
@@ -33,8 +34,7 @@ command:
   - '--train_triples=data/biokgb/graph/biokg.links-train.csv'
   - '--valid_triples=data/biokgb/graph/biokg.links-valid.csv'
   - '--test_triples=data/biokgb/graph/biokg.links-test.csv'
-  - '--search_eval_batch_size=True'
-  - '--protein_data=data/biokgb/properties/protein_prottrans_embeddings_24_12.pt'
+  - '--molecule_data=data/biokgb/properties/molecule_moltrans_embeddings.pt'
   - '--log_wandb=True'
-  - '--notes=BioBLP-P RotatE sweep'
+  - '--notes=BioBLP-M RotatE sweep'
   - ${args}
