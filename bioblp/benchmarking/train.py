@@ -114,6 +114,33 @@ class ConsoleResultTracker():
             f"============== File tracker callback | study: {study} \n, frozentrial: {trial_i}, \n kwargs: {kwargs}")
 
 
+def transform_model_inputs(X: np.array,
+                           y: np.array,
+                           model_name: str) -> Union[Tuple[np.array, np.array], Tuple[Tensor, Tensor]]:
+    """ Transform numpy to Tensor for MLP model. Needed because MLP in pytorch implementation.
+
+    Parameters
+    ----------
+    X : np.array
+        Feature data
+    y : np.array
+        lables
+    model_name : str
+        label for model
+
+    Returns
+    -------
+    Tuple[np.array, np.array] or  Tuple[Tensor, Tensor]
+        Tensors for MLP, numpy for others.
+    """
+    if "MLP" in model_name:
+        Xt = torch.tensor(X.copy(), dtype=torch.float32)
+        yt = torch.tensor(y.copy(), dtype=torch.float32).unsqueeze(1)
+        return Xt, yt
+
+    return X, y
+
+
 def create_train_objective(name, X_train, y_train, X_valid, y_valid, scoring, refit_params=["AUCPR", "AUCROC"],
                            run_id: Union[str, None] = None):
     if "LR" in name:
@@ -135,6 +162,9 @@ def create_train_objective(name, X_train, y_train, X_valid, y_valid, scoring, re
     elif "MLP" in name:
         X_train, y_train = transform_model_inputs(
             X_train, y_train, model_name=name)
+
+        X_valid, y_valid = transform_model_inputs(
+            X_valid, y_valid, model_name=name)
         return MLPObjective(X_train=X_train,
                             y_train=y_train,
                             X_valid=X_valid,
@@ -142,39 +172,15 @@ def create_train_objective(name, X_train, y_train, X_valid, y_valid, scoring, re
                             scoring=scoring,
                             refit_params=refit_params,
                             run_id=run_id,
-                            epochs=400)
-
-
-def transform_model_inputs(X: np.array,
-                           y: np.array,
-                           model_name: str) -> Union[Tuple[np.array, np.array], Tuple[Tensor, Tensor]]:
-    """ Transform numpy to Tensor for MLP model. Needed because MLP in pytorch implementation.
-
-    Parameters
-    ----------
-    X : np.array
-        Feature data
-    y : np.array
-        lables
-    model_name : str
-        label for model
-
-    Returns
-    -------
-    Tuple[np.array, np.array] or  Tuple[Tensor, Tensor]
-        Tensors for MLP, numpy for others.
-    """
-    if "MLP" in model_name:
-        Xt = torch.tensor(X, dtype=torch.float32)
-        yt = torch.tensor(y, dtype=torch.float32).unsqueeze(1)
-        return Xt, yt
-
-    return X, y
+                            epochs=10)
 
 
 def hpo_single_model(fold_i, train_idx, test_idx, name, feature_dir, model_feature, scoring, refit_params, wandb_tag, inner_n_iter, outdir, study_prefix, model_clf, timestamp):
     outer_scores = defaultdict(dict)
     outer_scores[name] = {}
+    outer_scores[name]["scores"] = defaultdict(list)
+    outer_scores[name]["curves"] = defaultdict(list)
+    outer_scores[name]["params"] = []
 
     # load feature set
     X_feat, y_feat = load_feature_data(
@@ -360,6 +366,8 @@ def run_cv_training(models: Dict[str, dict],
     dict
         outer cv scores e.g. {name: scores}
     """
+    torch.multiprocessing.set_start_method("spawn")
+
     if timestamp is None:
         timestamp = str(int(time()))
 
@@ -369,36 +377,51 @@ def run_cv_training(models: Dict[str, dict],
 
     feature_dir = Path(data_dir)
 
+    scores = []
+    study_dfs = []
+
+    outer_cv = StratifiedKFold(
+        n_splits=outer_n_folds, shuffle=shuffle, random_state=random_state
+    )
+
+    async_results = []
+
+    pool = torch.multiprocessing.Pool(processes=n_jobs)
+    # pool = mp.Pool(processes=n_jobs)
+
+    # with mp.Pool(n_jobs) as pool:
+    # mp.set_start_method('spawn')
     for model_label, model_cfg in models.items():
         model_feature = model_cfg.get("feature")
         model_clf = model_cfg.get("model")
 
         name = get_model_label(feature=model_feature, model=model_clf)
 
-        outer_cv = StratifiedKFold(
-            n_splits=outer_n_folds, shuffle=shuffle, random_state=random_state
-        )
-
         outer_scores[name] = defaultdict(dict)
-        outer_scores[name]["scores"] = defaultdict(list)
-        outer_scores[name]["curves"] = defaultdict(list)
-        outer_scores[name]["params"] = []
-
-        pool = mp.Pool()
+        # outer_scores[name]["scores"] = defaultdict(list)
+        # outer_scores[name]["curves"] = defaultdict(list)
+        # outer_scores[name]["params"] = []
 
         # use raw benchmark table to perform cf split but load specific feature set
-        scores = []
-        study_dfs = []
         for fold_i, (train_idx, test_idx) in enumerate(outer_cv.split(X, y)):
 
             result_i = pool.apply_async(
                 hpo_single_model,
                 (fold_i, train_idx, test_idx),
-                name=name, feature_dir=feature_dir, model_feature=model_feature, scoring=scoring, refit_params=refit_params,  wandb_tag=wandb_tag,
-                inner_n_iter=inner_n_iter, outdir=outdir, study_prefix=study_prefix, model_clf=model_clf, timestamp=timestamp)
+                dict(name=name, feature_dir=feature_dir, model_feature=model_feature, scoring=scoring, refit_params=refit_params,  wandb_tag=wandb_tag,
+                     inner_n_iter=inner_n_iter, outdir=outdir, study_prefix=study_prefix, model_clf=model_clf, timestamp=timestamp))
 
-            scores.append(result_i[0])
-            study_dfs.append(result_i[1])
+            async_results.append(result_i)
+
+    pool.close()
+    pool.join()
+
+    logger.info(f"Getting results...")
+    for x in async_results:
+        result_i = x.get()
+        scores.append(result_i[0])
+        study_dfs.append(result_i[1])
+        del x
 
     trials_file = outdir.joinpath(f"{timestamp}-{study_prefix}.csv")
 

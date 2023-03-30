@@ -31,34 +31,19 @@ model_dir = "data/benchmarks/experiments/encoders/transe/"
 
 [models]
 
-[models.noise_lr]
-feature = "noise"
-model = "LR"
-
-[models.noise_rf]
-feature = "noise"
-model = "RF"
-
 [models.noise_mlp]
 feature = "noise"
 model = "MLP"
 
-[models.structural_lr]
-feature = "structural"
-model = "LR"
 
-[models.complex_lr]
-feature = "complex"
-model = "LR"
-
-[models.rotate_lr]
+[models.rotate_mlp]
 feature = "rotate"
-model = "LR"
+model = "MLP"
 
 [train]
-n_iter = 3
+n_iter = 2
 inner_n_folds = 2
-outer_n_folds = 5
+outer_n_folds = 2
 shuffle = true
 refit_params = ["AUCPR", "AUCROC"]
 outdir = "models"

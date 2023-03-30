@@ -168,7 +168,7 @@ class LRObjective(TrainObjective):
             "random_state": SEED,
             "max_iter": 1000,
             "solver": "lbfgs",
-            "n_jobs": -1,
+            "n_jobs": 1,
         }
         return default_params
 
@@ -180,7 +180,7 @@ class LRObjective(TrainObjective):
 
     def _clf_objective(self, trial):
         random_state = SEED
-        n_jobs = -1
+        n_jobs = 1
 
         C = trial.suggest_float("C", 1e-5, 1e3, log=True)
         solver = trial.suggest_categorical("solver", ["lbfgs"])
@@ -204,7 +204,7 @@ class RFObjective(TrainObjective):
             "min_samples_leaf": 1,
             "max_features": "sqrt",
             "random_state": SEED,
-            "n_jobs": -1,
+            "n_jobs": 1,
         }
         return default_params
 
@@ -216,7 +216,7 @@ class RFObjective(TrainObjective):
 
     def _clf_objective(self, trial):
         random_state = SEED
-        n_jobs = -1
+        n_jobs = 1
 
         criterion = trial.suggest_categorical(
             "criterion", ["gini", "entropy"])
@@ -316,7 +316,7 @@ class MLPObjective(TrainObjective):
     def _clf_objective(self, trial):
 
         lr = trial.suggest_float("optimizer__lr", 1e-5, 1e-1, log=True)
-        dropout = trial.suggest_float("module__dropout", 0.1, 0.5, step=0.1)
+        dropout = trial.suggest_float("module__dropout", 0.1, 0.5, step=0.05)
 
         clf_obj = self.model_init(optimizer__lr=lr, module__dropout=dropout)
 

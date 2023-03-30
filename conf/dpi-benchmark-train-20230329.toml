@@ -34,13 +34,13 @@ model_dir = "data/benchmarks/experiments/encoders/bioblpd/"
 
 [models]
 
-[models.noise_lr]
-feature = "noise"
-model = "LR"
-
 [models.noise_mlp]
 feature = "noise"
 model = "MLP"
+
+[models.noise_lr]
+feature = "noise"
+model = "LR"
 
 [models.noise_rf]
 feature = "noise"
