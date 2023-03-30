@@ -43,10 +43,9 @@ from typing import Union, Tuple, Dict
 
 from bioblp.logger import get_logger
 from bioblp.benchmarking.config import BenchmarkTrainConfig
-from bioblp.benchmarking.hpo import LRObjective
-from bioblp.benchmarking.hpo import MLPObjective
-from bioblp.benchmarking.hpo import RFObjective
-
+from bioblp.benchmarking.hpo import LRCVObjective
+from bioblp.benchmarking.hpo import MLCVPObjective
+from bioblp.benchmarking.hpo import RFCVObjective
 
 logger = get_logger(__name__)
 
@@ -112,35 +111,35 @@ class ConsoleResultTracker():
             f"============== File tracker callback | study: {study} \n, frozentrial: {trial_i}, \n kwargs: {kwargs}")
 
 
-def create_train_objective(name, X_train, y_train, X_valid, y_valid, scoring, refit_params=["AUCPR", "AUCROC"],
-                           run_id: Union[str, None] = None):
+def create_cv_objective(name, X_train, y_train, scoring, cv, refit_params=["AUCPR", "AUCROC"],
+                        run_id: Union[str, None] = None, n_jobs: int = 1):
     if "LR" in name:
-        return LRObjective(X_train=X_train,
+        return LRCVObjective(X_train=X_train,
                            y_train=y_train,
-                           X_valid=X_valid,
-                           y_valid=y_valid,
                            scoring=scoring,
+                           cv=cv,
                            refit_params=refit_params,
-                           run_id=run_id)
+                           run_id=run_id,
+                           n_jobs=n_jobs)
     elif "RF" in name:
-        return RFObjective(X_train=X_train,
+        return RFCVObjective(X_train=X_train,
                            y_train=y_train,
-                           X_valid=X_valid,
-                           y_valid=y_valid,
                            scoring=scoring,
+                           cv=cv,
                            refit_params=refit_params,
-                           run_id=run_id)
+                           run_id=run_id,
+                           n_jobs=n_jobs)
     elif "MLP" in name:
         X_train, y_train = transform_model_inputs(
             X_train, y_train, model_name=name)
-        return MLPObjective(X_train=X_train,
+        return MLPCVObjective(X_train=X_train,
                             y_train=y_train,
-                            X_valid=X_valid,
-                            y_valid=y_valid,
                             scoring=scoring,
+                            cv=cv,
                             refit_params=refit_params,
+                            epochs=400,
                             run_id=run_id,
-                            epochs=400)
+                            n_jobs=n_jobs)
 
 
 def transform_model_inputs(X: np.array,
@@ -170,23 +169,23 @@ def transform_model_inputs(X: np.array,
     return X, y
 
 
-def run_cv_training(models: Dict[str, dict],
-                    data_dir: str,
-                    X,
-                    y,
-                    scoring: dict,
-                    outdir: Path,
-                    outer_n_folds: int = 5,
-                    inner_n_folds: int = 2,
-                    inner_n_iter: int = 10,
-                    shuffle: bool = False,
-                    random_state: int = SEED,
-                    n_jobs: int = -1,
-                    refit_params: list = ["AUCPR", "AUCROC"],
-                    verbose: int = 14,
-                    timestamp: str = None,
-                    wandb_tag: str = None
-                    ) -> dict:
+def run_nested_cv(models: Dict[str, dict],
+                  data_dir: str,
+                  X,
+                  y,
+                  scoring: dict,
+                  outdir: Path,
+                  outer_n_folds: int = 5,
+                  inner_n_folds: int = 2,
+                  inner_n_iter: int = 10,
+                  shuffle: bool = False,
+                  random_state: int = SEED,
+                  n_jobs: int = -1,
+                  refit_params: list = ["AUCPR", "AUCROC"],
+                  verbose: int = 14,
+                  timestamp: str = None,
+                  wandb_tag: str = None
+                  ) -> dict:
     """ Nested cross validation routine.
         Inner cv loop performs hp optimization on all folds and surfaces
 
@@ -221,6 +220,10 @@ def run_cv_training(models: Dict[str, dict],
     dict
         outer cv scores e.g. {name: scores}
     """
+
+    inner_cv = StratifiedKFold(
+        n_splits=inner_n_folds, shuffle=shuffle, random_state=random_state
+    )
 
     outer_scores = {}
 
@@ -258,30 +261,24 @@ def run_cv_training(models: Dict[str, dict],
                 study_name=study_name,
             )
 
-            X_train, X_valid, y_train, y_valid = train_test_split(
-                X_feat[train_idx, :], y_feat[train_idx], test_size=0.1, stratify=y_feat[train_idx], random_state=fold_i)
-
             # create objective
-            objective = create_train_objective(
+            objective = create_cv_objective(
                 name=name,
-                X_train=X_train,
-                y_train=y_train,
-                X_valid=X_valid,
-                y_valid=y_valid,
+                X_train=X_feat[train_idx, :],
+                y_train=y_feat[train_idx],
+                cv=inner_cv,
                 scoring=scoring,
-                refit_params=refit_params
+                refit_params=refit_params,
+                run_id=study_name,
+                n_jobs=n_jobs
             )
 
-            if timestamp is None:
-                timestamp = str(int(time()))
-
             # set calbacks
-            tags = [study_name, study_prefix, name, model_feature, timestamp]
-
+            tags = [study_name, study_prefix, name, model_feature]
             if wandb_tag is not None:
                 tags.append(wandb_tag)
 
-            wandb_kwargs = {"project": "bioblp-dpi-s",
+            wandb_kwargs = {"project": "bioblp-dpi",
                             "entity": "discoverylab",
                             "tags": tags,
                             "config": {
@@ -289,8 +286,7 @@ def run_cv_training(models: Dict[str, dict],
                                 "model_clf": model_clf,
                                 "model_name": name,
                                 "study_prefix": study_prefix,
-                                "fold_idx": fold_i,
-                                "timestamp": timestamp
+                                "fold_idx": fold_i
                             }
                             }
 
@@ -302,6 +298,9 @@ def run_cv_training(models: Dict[str, dict],
             # perform optimisation
             study.optimize(objective, n_trials=inner_n_iter,
                            callbacks=[wandb_callback, file_tracker_callback])
+
+            if timestamp is None:
+                timestamp = int(time())
 
             trials_file = outdir.joinpath(f"{timestamp}-{study_prefix}.csv")
 
@@ -493,7 +492,7 @@ def run(conf: str, n_proc: int = -1, tag: str = None, override_data_root=None, o
 
         scorer = get_scorers()
 
-        cv_scores = run_cv_training(
+        nested_cv_scores = run_nested_cv(
             models=config.models,
             data_dir=feature_dir,
             X=X_bm,
@@ -511,15 +510,15 @@ def run(conf: str, n_proc: int = -1, tag: str = None, override_data_root=None, o
             wandb_tag=tag
         )
 
-        for algo, scores in cv_scores.items():
+        for algo, scores in nested_cv_scores.items():
             logger.info("Scores {}: {}".format(algo, scores))
 
-        exp_output["results"] = cv_scores
+        exp_output["results"] = nested_cv_scores
 
         logger.info(exp_output)
 
         file_out = models_out.joinpath(
-            "cv_scores_{}.npy".format(run_id))
+            "nested_cv_scores_{}.npy".format(run_id))
         logger.info("Saving to {}".format(file_out))
         np.save(file_out, exp_output)
 

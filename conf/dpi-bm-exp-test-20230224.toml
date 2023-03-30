@@ -1,6 +1,6 @@
 
 data_root = "/home/jovyan/workbench-shared-folder/bioblp/"
-experiment_root = "data/benchmarks/experiments/dpi_fda/20230224/"
+experiment_root = "data/benchmarks/experiments/dpi_fda/20230329-dev/"
 
 [sampling]
 outdir = "sampled"
@@ -56,9 +56,9 @@ feature = "rotate"
 model = "LR"
 
 [train]
-n_iter = 2
+n_iter = 3
 inner_n_folds = 2
-outer_n_folds = 2
+outer_n_folds = 5
 shuffle = true
 refit_params = ["AUCPR", "AUCROC"]
 outdir = "models"
