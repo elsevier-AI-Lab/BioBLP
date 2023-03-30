@@ -4,10 +4,12 @@ import string
 import optuna
 import numpy as np
 import random as rn
+import pandas as pd
 import abc
 import joblib
 
 import wandb
+import multiprocessing as mp
 
 from torch import nn
 from torch import Tensor
@@ -170,6 +172,143 @@ def transform_model_inputs(X: np.array,
     return X, y
 
 
+def hpo_single_model(fold_i, train_idx, test_idx, name, feature_dir, model_feature, scoring, refit_params, wandb_tag, inner_n_iter, outdir, study_prefix, model_clf, timestamp):
+    outer_scores = defaultdict(dict)
+    outer_scores[name] = {}
+
+    # load feature set
+    X_feat, y_feat = load_feature_data(
+        feature_dir.joinpath(f"{model_feature}.pt"))
+
+    # generate study name based on model, fold and some random word
+    study_name = generate_study_name(study_prefix, name, fold_i)
+
+    study = optuna.create_study(
+        directions=["maximize", "maximize"],
+        study_name=study_name,
+    )
+
+    X_train, X_valid, y_train, y_valid = train_test_split(
+        X_feat[train_idx, :], y_feat[train_idx], test_size=0.1, stratify=y_feat[train_idx], random_state=fold_i)
+
+    # create objective
+    objective = create_train_objective(
+        name=name,
+        X_train=X_train,
+        y_train=y_train,
+        X_valid=X_valid,
+        y_valid=y_valid,
+        scoring=scoring,
+        refit_params=refit_params
+    )
+
+    # set calbacks
+    tags = [study_name, study_prefix, name, model_feature, timestamp]
+
+    if wandb_tag is not None:
+        tags.append(wandb_tag)
+
+    wandb_kwargs = {"project": "bioblp-dpi-s",
+                    "entity": "discoverylab",
+                    "tags": tags,
+                    "config": {
+                        "model_feature": model_feature,
+                        "model_clf": model_clf,
+                        "model_name": name,
+                        "study_prefix": study_prefix,
+                        "fold_idx": fold_i,
+                        "timestamp": timestamp
+                    }
+                    }
+
+    wandb_callback = WeightsAndBiasesCallback(
+        metric_name=refit_params, wandb_kwargs=wandb_kwargs, as_multirun=True)
+
+    file_tracker_callback = ConsoleResultTracker()
+
+    # perform optimisation
+    study.optimize(objective, n_trials=inner_n_iter,
+                   callbacks=[wandb_callback, file_tracker_callback])
+
+    # trials_file = outdir.joinpath(f"{timestamp}-{study_prefix}.csv")
+
+    study_trials_df = study.trials_dataframe()
+    study_trials_df["study_name"] = study_name
+
+    # study_trials_df.to_csv(
+    #     trials_file, mode='a', header=not os.path.exists(trials_file), index=False)
+
+    # need to finish wandb run between iterations
+    wandb.finish()
+
+    #
+    # Refit with best params and score
+    #
+
+    trial_with_highest_AUCPR = max(
+        study.best_trials, key=lambda t: t.values[0])
+
+    logger.info(
+        f"Trial with highest AUPRC: {trial_with_highest_AUCPR}")
+
+    logger.info(
+        f"Refitting model {name} with best params: {trial_with_highest_AUCPR.params}...")
+
+    # construct model from best params
+    best_params_i = trial_with_highest_AUCPR.params
+    model = objective.model_init(**best_params_i)
+
+    # get params and store
+    model_params = objective._get_params_for(model)
+    outer_scores[name]["params"].append(model_params)
+
+    # register settings in wandb
+    wandb_kwargs["tags"].append("best")
+    wandb.init(**wandb_kwargs)
+
+    wandb_kwargs.update({"config": model_params})
+    wandb.config.update(wandb_kwargs["config"])
+
+    # torch tensor transform if MLP else return same
+    X_t, y_t = transform_model_inputs(X_feat, y_feat, model_name=name)
+
+    model.fit(X_t[train_idx, :], y_t[train_idx])
+
+    logger.info(f"Scoring  model...")
+    scores_i = defaultdict(float)
+    for param, scorer in scoring.items():
+        # test set
+        scores_i[f"test_{param}"] = scorer(
+            model, X_t[test_idx, :], y_t[test_idx])
+
+        # on train
+        scores_i[f"train_{param}"] = scorer(
+            model, X_t[train_idx, :], y_t[train_idx])
+
+    wandb.log(scores_i)
+    wandb.finish()
+
+    # accumulate scores,
+    for k_i, v_i in scores_i.items():
+        outer_scores[name]["scores"][k_i].append(v_i)
+    curves_i = defaultdict(list)
+
+    # compute curves
+    for param, scorer in get_auc_scorers().items():
+        curves_i[f"{param}"] = scorer(
+            model, X_t[test_idx, :], y_t[test_idx])
+
+        # accumulate curve scores
+    for k_i, v_i in curves_i.items():
+        outer_scores[name]["curves"][k_i].append(v_i)
+
+    # store model
+    joblib.dump(model, outdir.joinpath(
+        f"{timestamp}-{study_name}-{name}.joblib"))
+
+    return (outer_scores, study_trials_df)
+
+
 def run_cv_training(models: Dict[str, dict],
                     data_dir: str,
                     X,
@@ -221,6 +360,8 @@ def run_cv_training(models: Dict[str, dict],
     dict
         outer cv scores e.g. {name: scores}
     """
+    if timestamp is None:
+        timestamp = str(int(time()))
 
     outer_scores = {}
 
@@ -243,141 +384,30 @@ def run_cv_training(models: Dict[str, dict],
         outer_scores[name]["curves"] = defaultdict(list)
         outer_scores[name]["params"] = []
 
+        pool = mp.Pool()
+
         # use raw benchmark table to perform cf split but load specific feature set
+        scores = []
+        study_dfs = []
         for fold_i, (train_idx, test_idx) in enumerate(outer_cv.split(X, y)):
 
-            # load feature set
-            X_feat, y_feat = load_feature_data(
-                feature_dir.joinpath(f"{model_feature}.pt"))
+            result_i = pool.apply_async(
+                hpo_single_model,
+                (fold_i, train_idx, test_idx),
+                name=name, feature_dir=feature_dir, model_feature=model_feature, scoring=scoring, refit_params=refit_params,  wandb_tag=wandb_tag,
+                inner_n_iter=inner_n_iter, outdir=outdir, study_prefix=study_prefix, model_clf=model_clf, timestamp=timestamp)
 
-            # generate study name based on model, fold and some random word
-            study_name = generate_study_name(study_prefix, name, fold_i)
+            scores.append(result_i[0])
+            study_dfs.append(result_i[1])
 
-            study = optuna.create_study(
-                directions=["maximize", "maximize"],
-                study_name=study_name,
-            )
+    trials_file = outdir.joinpath(f"{timestamp}-{study_prefix}.csv")
 
-            X_train, X_valid, y_train, y_valid = train_test_split(
-                X_feat[train_idx, :], y_feat[train_idx], test_size=0.1, stratify=y_feat[train_idx], random_state=fold_i)
+    study_trials_df = pd.concat(study_dfs)
+    study_trials_df.to_csv(
+        trials_file, mode='a', header=not os.path.exists(trials_file), index=False)
 
-            # create objective
-            objective = create_train_objective(
-                name=name,
-                X_train=X_train,
-                y_train=y_train,
-                X_valid=X_valid,
-                y_valid=y_valid,
-                scoring=scoring,
-                refit_params=refit_params
-            )
-
-            if timestamp is None:
-                timestamp = str(int(time()))
-
-            # set calbacks
-            tags = [study_name, study_prefix, name, model_feature, timestamp]
-
-            if wandb_tag is not None:
-                tags.append(wandb_tag)
-
-            wandb_kwargs = {"project": "bioblp-dpi-s",
-                            "entity": "discoverylab",
-                            "tags": tags,
-                            "config": {
-                                "model_feature": model_feature,
-                                "model_clf": model_clf,
-                                "model_name": name,
-                                "study_prefix": study_prefix,
-                                "fold_idx": fold_i,
-                                "timestamp": timestamp
-                            }
-                            }
-
-            wandb_callback = WeightsAndBiasesCallback(
-                metric_name=refit_params, wandb_kwargs=wandb_kwargs, as_multirun=True)
-
-            file_tracker_callback = ConsoleResultTracker()
-
-            # perform optimisation
-            study.optimize(objective, n_trials=inner_n_iter,
-                           callbacks=[wandb_callback, file_tracker_callback])
-
-            trials_file = outdir.joinpath(f"{timestamp}-{study_prefix}.csv")
-
-            study_trials_df = study.trials_dataframe()
-            study_trials_df["study_name"] = study_name
-
-            study_trials_df.to_csv(
-                trials_file, mode='a', header=not os.path.exists(trials_file), index=False)
-
-            # need to finish wandb run between iterations
-            wandb.finish()
-
-            #
-            # Refit with best params and score
-            #
-
-            trial_with_highest_AUCPR = max(
-                study.best_trials, key=lambda t: t.values[0])
-
-            logger.info(
-                f"Trial with highest AUPRC: {trial_with_highest_AUCPR}")
-
-            logger.info(
-                f"Refitting model {name} with best params: {trial_with_highest_AUCPR.params}...")
-
-            # construct model from best params
-            best_params_i = trial_with_highest_AUCPR.params
-            model = objective.model_init(**best_params_i)
-
-            # get params and store
-            model_params = objective._get_params_for(model)
-            outer_scores[name]["params"].append(model_params)
-
-            # register settings in wandb
-            wandb_kwargs["tags"].append("best")
-            wandb.init(**wandb_kwargs)
-
-            wandb_kwargs.update({"config": model_params})
-            wandb.config.update(wandb_kwargs["config"])
-
-            # torch tensor transform if MLP else return same
-            X_t, y_t = transform_model_inputs(X_feat, y_feat, model_name=name)
-
-            model.fit(X_t[train_idx, :], y_t[train_idx])
-
-            logger.info(f"Scoring  model...")
-            scores_i = defaultdict(float)
-            for param, scorer in scoring.items():
-                # test set
-                scores_i[f"test_{param}"] = scorer(
-                    model, X_t[test_idx, :], y_t[test_idx])
-
-                # on train
-                scores_i[f"train_{param}"] = scorer(
-                    model, X_t[train_idx, :], y_t[train_idx])
-
-            wandb.log(scores_i)
-            wandb.finish()
-
-            # accumulate scores,
-            for k_i, v_i in scores_i.items():
-                outer_scores[name]["scores"][k_i].append(v_i)
-            curves_i = defaultdict(list)
-
-            # compute curves
-            for param, scorer in get_auc_scorers().items():
-                curves_i[f"{param}"] = scorer(
-                    model, X_t[test_idx, :], y_t[test_idx])
-
-             # accumulate curve scores
-            for k_i, v_i in curves_i.items():
-                outer_scores[name]["curves"][k_i].append(v_i)
-
-            # store model
-            joblib.dump(model, outdir.joinpath(
-                f"{timestamp}-{study_name}-{name}.joblib"))
+    for scores_i in scores:
+        outer_scores.update(scores_i)
 
     return outer_scores
 
