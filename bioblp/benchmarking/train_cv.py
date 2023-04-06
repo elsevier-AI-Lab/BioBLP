@@ -54,11 +54,10 @@ from bioblp.benchmarking.hpo import create_train_objective
 
 logger = get_logger(__name__)
 
+
 SEED = 42
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-LOG_WANDB = True
 
 
 def get_random_string(length):
@@ -116,31 +115,8 @@ class ConsoleResultTracker():
         logger.info(
             f"============== File tracker callback | study: {study} \n, frozentrial: {trial_i}, \n kwargs: {kwargs}")
 
-        
-class HistoryCallback(object):
-    def __init__(self, outdir, prefix):
-        self.history = None
-        self.prefix = prefix
-        self.outdir = Path(outdir)
 
-    def __call__(self, study, trial, **kwargs):
-
-#         with open(self.outdir.joinpath(f"history-{self.prefix}-{trial.number}.json"), "r") as f:
-        try:
-            self.history.to_file(self.outdir.joinpath(f"history-{self.prefix}-{trial.number}.json").resolve())
-        except Exception as e:
-            logger.warning(f"Error while saving history for {self.prefix}-{trial.number}: {e}")
-            
-        self.history = None
-
-    def set_data(self, model):
-        self.history = model.history
-
-
-def hpo_single_model(fold_i, train_idx, test_idx, name, feature_dir, model_feature, scoring, refit_params, wandb_tag, inner_n_iter, outdir, study_prefix, model_clf, timestamp, random_state=SEED):
-
-    t_start = int(time())
-
+def hpo_single_model(fold_i, train_idx, test_idx, name, feature_dir, model_feature, scoring, refit_params, wandb_tag, inner_n_iter, outdir, study_prefix, model_clf, timestamp):
     outer_scores = defaultdict(dict)
     outer_scores[name] = {}
     outer_scores[name]["scores"] = defaultdict(list)
@@ -154,18 +130,14 @@ def hpo_single_model(fold_i, train_idx, test_idx, name, feature_dir, model_featu
     # generate study name based on model, fold and some random word
     study_name = generate_study_name(study_prefix, name, fold_i)
 
-    study = optuna.create_study(  # uses TPE sampler by default
+    study = optuna.create_study(
         directions=["maximize", "maximize"],
         study_name=study_name,
     )
 
     X_train, X_valid, y_train, y_valid = train_test_split(
-        X_feat[train_idx, :], y_feat[train_idx], test_size=0.1, stratify=y_feat[train_idx], random_state=random_state)
-    
-    
-    history_callback = HistoryCallback(outdir=outdir, prefix=f"{timestamp}-{study_name}")
-    
-    
+        X_feat[train_idx, :], y_feat[train_idx], test_size=0.1, stratify=y_feat[train_idx], random_state=fold_i)
+
     # create objective
     objective = create_train_objective(
         name=name,
@@ -174,8 +146,7 @@ def hpo_single_model(fold_i, train_idx, test_idx, name, feature_dir, model_featu
         X_valid=X_valid,
         y_valid=y_valid,
         scoring=scoring,
-        refit_params=refit_params,
-        callback = history_callback if "MLP" in name else None
+        refit_params=refit_params
     )
 
     # set calbacks
@@ -184,7 +155,7 @@ def hpo_single_model(fold_i, train_idx, test_idx, name, feature_dir, model_featu
     if wandb_tag is not None:
         tags.append(wandb_tag)
 
-    wandb_kwargs = {"project": "bioblp-dpi-tvt",
+    wandb_kwargs = {"project": "bioblp-dpi-s",
                     "entity": "discoverylab",
                     "tags": tags,
                     "config": {
@@ -197,24 +168,14 @@ def hpo_single_model(fold_i, train_idx, test_idx, name, feature_dir, model_featu
                     }
                     }
 
+    wandb_callback = WeightsAndBiasesCallback(
+        metric_name=refit_params, wandb_kwargs=wandb_kwargs, as_multirun=True)
+
     file_tracker_callback = ConsoleResultTracker()
-    
 
     # perform optimisation
-    study_callbacks = [file_tracker_callback]
-
-    if LOG_WANDB:
-        wandb_callback = WeightsAndBiasesCallback(
-            metric_name=refit_params, wandb_kwargs=wandb_kwargs, as_multirun=True)
-
-        study_callbacks.append(wandb_callback)
-
-    if "MLP" in name:
-        study_callbacks.append(history_callback)
-    
-    study.optimize(objective, 
-                   n_trials=inner_n_iter,
-                   callbacks=study_callbacks)
+    study.optimize(objective, n_trials=inner_n_iter,
+                   callbacks=[wandb_callback, file_tracker_callback])
 
     # trials_file = outdir.joinpath(f"{timestamp}-{study_prefix}.csv")
 
@@ -225,13 +186,8 @@ def hpo_single_model(fold_i, train_idx, test_idx, name, feature_dir, model_featu
     #     trials_file, mode='a', header=not os.path.exists(trials_file), index=False)
 
     # need to finish wandb run between iterations
-    if LOG_WANDB:
-        wandb.finish()
+    wandb.finish()
 
-    t_duration = int(time()) - t_start
-
-    logger.info(
-        f"Model search for {name} took : {t_duration} secs.")
     #
     # Refit with best params and score
     #
@@ -254,14 +210,11 @@ def hpo_single_model(fold_i, train_idx, test_idx, name, feature_dir, model_featu
     outer_scores[name]["params"].append(model_params)
 
     # register settings in wandb
+    wandb_kwargs["tags"].append("best")
+    wandb.init(**wandb_kwargs)
 
-    if LOG_WANDB:
-
-        wandb_kwargs["tags"].append("best")
-        wandb.init(**wandb_kwargs)
-
-        wandb_kwargs.update({"config": model_params})
-        wandb.config.update(wandb_kwargs["config"])
+    wandb_kwargs.update({"config": model_params})
+    wandb.config.update(wandb_kwargs["config"])
 
     # torch tensor transform if MLP else return same
     X_t, y_t = transform_model_inputs(X_feat, y_feat, model_name=name)
@@ -279,9 +232,8 @@ def hpo_single_model(fold_i, train_idx, test_idx, name, feature_dir, model_featu
         scores_i[f"train_{param}"] = scorer(
             model, X_t[train_idx, :], y_t[train_idx])
 
-    if LOG_WANDB:
-        wandb.log(scores_i)
-        wandb.finish()
+    wandb.log(scores_i)
+    wandb.finish()
 
     # accumulate scores,
     for k_i, v_i in scores_i.items():
@@ -298,14 +250,13 @@ def hpo_single_model(fold_i, train_idx, test_idx, name, feature_dir, model_featu
         outer_scores[name]["curves"][k_i].append(v_i)
 
     # store model
-    logger.info("Storing model...")
     joblib.dump(model, outdir.joinpath(
         f"{timestamp}-{study_name}-{name}.joblib"))
 
     return (outer_scores, study_trials_df)
 
 
-def run_training_jobs(models: Dict[str, dict],
+def run_cv_training(models: Dict[str, dict],
                     data_dir: str,
                     X,
                     y,
@@ -356,6 +307,7 @@ def run_training_jobs(models: Dict[str, dict],
     dict
         outer cv scores e.g. {name: scores}
     """
+    # torch.multiprocessing.set_start_method("spawn")
 
     if timestamp is None:
         timestamp = str(int(time()))
@@ -369,86 +321,51 @@ def run_training_jobs(models: Dict[str, dict],
     scores = []
     study_dfs = []
 
-    X_indices = torch.arange(len(X))
+    outer_cv = StratifiedKFold(
+        n_splits=outer_n_folds, shuffle=shuffle, random_state=random_state
+    )
 
-    train_idx, test_idx, y_train, y_test = train_test_split(
-        X_indices, y, test_size=0.1, stratify=y, random_state=random_state)
+    async_results = []
 
-    fold_i = "train"
+    pool = torch.multiprocessing.Pool(processes=n_jobs)
+    # pool = mp.Pool(processes=n_jobs)
 
-    split_data = {"fold": fold_i, "train": train_idx, "test": test_idx}
-    torch.save(split_data, outdir.joinpath(f"split_{fold_i}.pt"))
+    # with mp.Pool(n_jobs) as pool:
+    # mp.set_start_method('spawn')
+    for model_label, model_cfg in models.items():
+        model_feature = model_cfg.get("feature")
+        model_clf = model_cfg.get("model")
 
-    #
-    # Multiprocessing
-    #
-    if n_jobs > 1:
-        logger.info(f"Running training as multiprocessing...")
-        async_results = []
-        pool = torch.multiprocessing.Pool(processes=n_jobs)
+        name = get_model_label(feature=model_feature, model=model_clf)
 
-        for model_label, model_cfg in models.items():
-            model_feature = model_cfg.get("feature")
-            model_clf = model_cfg.get("model")
+        outer_scores[name] = defaultdict(dict)
+        # outer_scores[name]["scores"] = defaultdict(list)
+        # outer_scores[name]["curves"] = defaultdict(list)
+        # outer_scores[name]["params"] = []
 
-            name = get_model_label(feature=model_feature, model=model_clf)
+        # use raw benchmark table to perform cf split but load specific feature set
+        for fold_i, (train_idx, test_idx) in enumerate(outer_cv.split(X, y)):
+            split_data = {"fold": fold_i, "train": train_idx, "test": test_idx}
 
-            outer_scores[name] = defaultdict(dict)
+            torch.save(split_data, outdir.joinpath(f"split_{fold_i}.pt"))
 
             result_i = pool.apply_async(
                 hpo_single_model,
                 (fold_i, train_idx, test_idx),
                 dict(name=name, feature_dir=feature_dir, model_feature=model_feature, scoring=scoring, refit_params=refit_params,  wandb_tag=wandb_tag,
-                     inner_n_iter=inner_n_iter, outdir=outdir, study_prefix=study_prefix, model_clf=model_clf, timestamp=timestamp, random_state=random_state))
+                     inner_n_iter=inner_n_iter, outdir=outdir, study_prefix=study_prefix, model_clf=model_clf, timestamp=timestamp))
 
             async_results.append(result_i)
 
-        pool.close()
-        pool.join()
+    pool.close()
+    pool.join()
 
-        logger.info(f"Getting results...")
-        for x in async_results:
-            result_i = x.get()
-            scores.append(result_i[0])
-            study_dfs.append(result_i[1])
-            del x
-
-    #
-    # single process
-    #
-    else:
-#         torch.multiprocessing.set_start_method("spawn")
-        
-        results = []
-        t_total = 0
-
-        logger.info(f"Running training in single process...")
-
-        for model_label, model_cfg in models.items():
-            t_start = int(time())
-
-            model_feature = model_cfg.get("feature")
-            model_clf = model_cfg.get("model")
-
-            name = get_model_label(feature=model_feature, model=model_clf)
-
-            outer_scores[name] = defaultdict(dict)
-
-            result_i = hpo_single_model(fold_i, train_idx, test_idx, name=name, feature_dir=feature_dir, model_feature=model_feature, scoring=scoring, refit_params=refit_params,  wandb_tag=wandb_tag,
-                                        inner_n_iter=inner_n_iter, outdir=outdir, study_prefix=study_prefix, model_clf=model_clf, timestamp=timestamp, random_state=random_state)
-
-            results.append(result_i)
-
-            t_duration = int(time()) - t_start
-            t_total += t_duration
-
-            logger.info(
-                f"Model search for {model_label} took : {t_duration} sec. Total script time {t_total} secs.")
-
-        logger.info(f"Getting results...")
-        for result_i in results:
-            scores.append(result_i[0])
-            study_dfs.append(result_i[1])
+    logger.info(f"Getting results...")
+    for x in async_results:
+        result_i = x.get()
+        scores.append(result_i[0])
+        study_dfs.append(result_i[1])
+        del x
 
     trials_file = outdir.joinpath(f"{timestamp}-{study_prefix}.csv")
 
@@ -573,7 +490,7 @@ def run(conf: str, n_proc: int = -1, tag: str = None, override_data_root=None, o
 
         scorer = get_scorers()
 
-        cv_scores = run_training_jobs(
+        cv_scores = run_cv_training(
             models=config.models,
             data_dir=feature_dir,
             X=X_bm,

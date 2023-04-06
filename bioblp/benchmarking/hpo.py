@@ -11,6 +11,8 @@ import wandb
 
 from torch import nn
 from torch import Tensor
+from torch.optim.lr_scheduler import ReduceLROnPlateau
+
 from argparse import ArgumentParser
 from dataclasses import asdict
 from pathlib import Path
@@ -39,6 +41,7 @@ from sklearn.model_selection import train_test_split
 from skorch import NeuralNetClassifier
 from skorch.callbacks import EarlyStopping
 from skorch.callbacks import EpochScoring
+from skorch.callbacks import LRScheduler
 from typing import Union, Tuple, Dict
 
 from bioblp.logger import get_logger
@@ -86,7 +89,7 @@ class OptunaTrainObjective(abc.ABC):
 
 
 class TrainObjective(OptunaTrainObjective):
-    def __init__(self, X_train, y_train, X_valid, y_valid, scoring, refit_params, run_id: Union[str, None] = None):
+    def __init__(self, X_train, y_train, X_valid, y_valid, scoring, refit_params, run_id: Union[str, None] = None, callback = None):
         self._model = None
         self.X_train = X_train
         self.y_train = y_train
@@ -95,6 +98,7 @@ class TrainObjective(OptunaTrainObjective):
         self.scoring = scoring
         self.refit_params = refit_params
         self.run_id = run_id
+        self._callback = callback
 
     def __call__(self, trial):
         self._model = self._clf_objective(trial)
@@ -112,8 +116,11 @@ class TrainObjective(OptunaTrainObjective):
         trial.set_user_attr('model_params', self._get_params_for(self._model))
 
         score_to_optimize = [
-            result.get("valid_{}".format(param_x)).mean() for param_x in self.refit_params
+            result.get("valid_{}".format(param_x)) for param_x in self.refit_params
         ]
+        
+        if self._callback is not None:
+            self._callback.set_data(self._model)
 
         return tuple(score_to_optimize)
 
@@ -168,7 +175,7 @@ class LRObjective(TrainObjective):
             "random_state": SEED,
             "max_iter": 1000,
             "solver": "lbfgs",
-            "n_jobs": 1,
+            "n_jobs": -1,
         }
         return default_params
 
@@ -180,14 +187,19 @@ class LRObjective(TrainObjective):
 
     def _clf_objective(self, trial):
         random_state = SEED
-        n_jobs = 1
+        n_jobs = -1
 
         C = trial.suggest_float("C", 1e-5, 1e3, log=True)
         solver = trial.suggest_categorical("solver", ["lbfgs"])
         max_iter = trial.suggest_categorical("max_iter", [1000])
 
         clf_obj = self.model_init(
-            random_state=random_state, n_jobs=n_jobs, C=C, solver=solver, max_iter=max_iter
+            random_state=random_state,
+            n_jobs=n_jobs,
+            C=C,
+            solver=solver,
+            max_iter=max_iter,
+            class_weight="balanced",
         )
         return clf_obj
 
@@ -204,7 +216,7 @@ class RFObjective(TrainObjective):
             "min_samples_leaf": 1,
             "max_features": "sqrt",
             "random_state": SEED,
-            "n_jobs": 1,
+            "n_jobs": -1,
         }
         return default_params
 
@@ -216,7 +228,7 @@ class RFObjective(TrainObjective):
 
     def _clf_objective(self, trial):
         random_state = SEED
-        n_jobs = 1
+        n_jobs = -1
 
         criterion = trial.suggest_categorical(
             "criterion", ["gini", "entropy"])
@@ -239,12 +251,13 @@ class RFObjective(TrainObjective):
             criterion=criterion,
             random_state=random_state,
             n_jobs=n_jobs,
+            class_weight="balanced",
         )
         return clf_obj
 
 
 class MLP(nn.Module):
-    def __init__(self, input_dims=256, hidden_dims=[256, 256], dropout=0.3, output_dims=2):
+    def __init__(self, input_dims=256, hidden_dims=[256, 256], dropout=0.3, output_dims=1):
         super().__init__()
         layers = []
 
@@ -291,6 +304,18 @@ class MLPObjective(TrainObjective):
 
         scorer_callback = EpochScoring(
             aucpr_scorer, lower_is_better=False, on_train=False, name="valid_AUCPR")
+        
+#         optimizer = torch.optim.Adagrad()
+        lr_scheduler = LRScheduler(policy=ReduceLROnPlateau, 
+                                    monitor = 'valid_loss', 
+                                    mode = 'min', 
+                                    threshold=0.0001,
+                                    threshold_mode="rel",
+                                    patience = 4,
+                                    factor = 0.5,
+                                    min_lr = 1e-5,
+                                    verbose = True)
+        
         early_stopping = EarlyStopping(monitor="valid_AUCPR",
                                        patience=10,
                                        threshold=0.001,
@@ -304,9 +329,10 @@ class MLPObjective(TrainObjective):
             max_epochs=self.epochs,
             criterion=nn.BCEWithLogitsLoss,
             optimizer=torch.optim.Adagrad,
-            batch_size=128,
+            optimizer__lr=0.01,
+            batch_size=64,
             # train_split=0.8,
-            callbacks=[scorer_callback, early_stopping],
+            callbacks=[scorer_callback, early_stopping, lr_scheduler],
             device=DEVICE,
             ** kwargs,
         )
@@ -315,10 +341,11 @@ class MLPObjective(TrainObjective):
 
     def _clf_objective(self, trial):
 
-        lr = trial.suggest_float("optimizer__lr", 1e-5, 1e-1, log=True)
+        #lr = trial.suggest_float("optimizer__lr", 1e-5, 1e-1, log=True)
         dropout = trial.suggest_float("module__dropout", 0.1, 0.5, step=0.05)
 
-        clf_obj = self.model_init(optimizer__lr=lr, module__dropout=dropout)
+#         clf_obj = self.model_init(optimizer__lr=lr, module__dropout=dropout)
+        clf_obj = self.model_init(module__dropout=dropout)
 
         return clf_obj
 
@@ -333,3 +360,65 @@ class RFCVObjective(CVObjective, RFObjective):
 
 class LRCVObjective(CVObjective, RFObjective):
     ...
+
+
+def transform_model_inputs(X: np.array,
+                           y: np.array,
+                           model_name: str) -> Union[Tuple[np.array, np.array], Tuple[Tensor, Tensor]]:
+    """ Transform numpy to Tensor for MLP model. Needed because MLP in pytorch implementation.
+
+    Parameters
+    ----------
+    X : np.array
+        Feature data
+    y : np.array
+        lables
+    model_name : str
+        label for model
+
+    Returns
+    -------
+    Tuple[np.array, np.array] or  Tuple[Tensor, Tensor]
+        Tensors for MLP, numpy for others.
+    """
+    if "MLP" in model_name:
+        Xt = torch.tensor(X.copy(), dtype=torch.float32)
+        yt = torch.tensor(y.copy(), dtype=torch.float32).unsqueeze(1)
+        return Xt, yt
+
+    return X, y
+
+
+def create_train_objective(name, X_train, y_train, X_valid, y_valid, scoring, refit_params=["AUCPR", "AUCROC"],
+                           run_id: Union[str, None] = None, **kwargs):
+    if "LR" in name:
+        return LRObjective(X_train=X_train,
+                           y_train=y_train,
+                           X_valid=X_valid,
+                           y_valid=y_valid,
+                           scoring=scoring,
+                           refit_params=refit_params,
+                           run_id=run_id)
+    elif "RF" in name:
+        return RFObjective(X_train=X_train,
+                           y_train=y_train,
+                           X_valid=X_valid,
+                           y_valid=y_valid,
+                           scoring=scoring,
+                           refit_params=refit_params,
+                           run_id=run_id)
+    elif "MLP" in name:
+        X_train, y_train = transform_model_inputs(
+            X_train, y_train, model_name=name)
+
+        X_valid, y_valid = transform_model_inputs(
+            X_valid, y_valid, model_name=name)
+        return MLPObjective(X_train=X_train,
+                            y_train=y_train,
+                            X_valid=X_valid,
+                            y_valid=y_valid,
+                            scoring=scoring,
+                            refit_params=refit_params,
+                            run_id=run_id,
+                            epochs=300,
+                            callback=kwargs.get("callback", None))
