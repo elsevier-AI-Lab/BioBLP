@@ -89,7 +89,7 @@ class OptunaTrainObjective(abc.ABC):
 
 
 class TrainObjective(OptunaTrainObjective):
-    def __init__(self, X_train, y_train, X_valid, y_valid, scoring, refit_params, run_id: Union[str, None] = None, callback = None):
+    def __init__(self, X_train, y_train, X_valid, y_valid, scoring, refit_params, run_id: Union[str, None] = None, callback=None):
         self._model = None
         self.X_train = X_train
         self.y_train = y_train
@@ -118,7 +118,7 @@ class TrainObjective(OptunaTrainObjective):
         score_to_optimize = [
             result.get("valid_{}".format(param_x)) for param_x in self.refit_params
         ]
-        
+
         if self._callback is not None:
             self._callback.set_data(self._model)
 
@@ -304,18 +304,18 @@ class MLPObjective(TrainObjective):
 
         scorer_callback = EpochScoring(
             aucpr_scorer, lower_is_better=False, on_train=False, name="valid_AUCPR")
-        
+
 #         optimizer = torch.optim.Adagrad()
-        lr_scheduler = LRScheduler(policy=ReduceLROnPlateau, 
-                                    monitor = 'valid_loss', 
-                                    mode = 'min', 
-                                    threshold=0.0001,
-                                    threshold_mode="rel",
-                                    patience = 4,
-                                    factor = 0.5,
-                                    min_lr = 1e-5,
-                                    verbose = True)
-        
+        lr_scheduler = LRScheduler(policy=ReduceLROnPlateau,
+                                   monitor='valid_loss',
+                                   mode='min',
+                                   threshold=0.0001,
+                                   threshold_mode="rel",
+                                   patience=4,
+                                   factor=0.5,
+                                   min_lr=1e-5,
+                                   verbose=True)
+
         early_stopping = EarlyStopping(monitor="valid_AUCPR",
                                        patience=10,
                                        threshold=0.001,

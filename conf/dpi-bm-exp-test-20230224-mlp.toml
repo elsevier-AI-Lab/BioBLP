@@ -31,13 +31,13 @@ model_dir = "data/benchmarks/experiments/encoders/transe/"
 
 [models]
 
-[models.noise_rf]
-feature = "noise"
-model = "RF"
+[models.transe_mlp]
+feature = "transe"
+model = "MLP"
 
-[models.complex_lr]
+[models.complex_mlp]
 feature = "complex"
-model = "LR"
+model = "MLP"
 
 [train]
 n_iter = 2
