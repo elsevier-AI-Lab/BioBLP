@@ -92,14 +92,37 @@ class BenchmarkFeatureConfig(BenchmarkStepBaseConfig):
 
 
 @dataclass
+class BenchmarkSplitConfig(BenchmarkStepBaseConfig):
+    n_splits: int
+
+    @classmethod
+    def from_toml(cls, toml_path: str, run_id: str):
+        conf_path = Path(toml_path)
+        config_toml = load_toml(conf_path)
+
+        data_root = config_toml.get("data_root")
+        experiment_root = config_toml.get("experiment_root")
+
+        cfg = config_toml.get("split")
+
+        cfg.update({"data_root": data_root})
+        cfg.update({"experiment_root": experiment_root})
+        cfg.update({"run_id": run_id})
+
+        return cls(**cfg)
+
+
+@dataclass
 class BenchmarkTrainConfig(BenchmarkStepBaseConfig):
     feature_dir: str
+    splits_dir: str
+    splits_file: str
     models: dict
-    shuffle: bool
+    # shuffle: bool
     refit_params: List[str]
     n_iter: int = field(default=2, metadata={"help": "Stuff"})
-    inner_n_folds: int = field(default=3)
-    outer_n_folds: int = field(default=3)
+    # inner_n_folds: int = field(default=3)
+    # outer_n_folds: int = field(default=3)
 
     @classmethod
     def from_toml(cls, toml_path, run_id):
@@ -113,6 +136,8 @@ class BenchmarkTrainConfig(BenchmarkStepBaseConfig):
         cfg["data_root"] = conf.get("data_root")
         cfg["experiment_root"] = conf.get("experiment_root")
         cfg["feature_dir"] = conf.get("features").get("outdir")
+        cfg["splits_dir"] = conf.get("split").get("outdir")
+
         cfg.update({"run_id": run_id})
 
         return cls(**cfg)
@@ -124,3 +149,12 @@ class BenchmarkTrainConfig(BenchmarkStepBaseConfig):
             .joinpath(self.feature_dir)
 
         return feature_dir
+
+    def resolve_splits_file(self) -> Path:
+        splits_path = Path(self.data_root)\
+            .joinpath(self.experiment_root)\
+            .joinpath(self.run_id)\
+            .joinpath(self.splits_dir)\
+            .joinpath(self.splits_file)
+
+        return splits_path

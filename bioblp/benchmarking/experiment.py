@@ -42,7 +42,10 @@ def run_experiment(args):
     #
     # Prepare splits
     #
-
+    split_main(data=sampled_bm_filepath,
+               conf=args.conf,
+               override_data_root=override_data_root,
+               override_run_id=experiment_id)
     #
     # Run training
     # #

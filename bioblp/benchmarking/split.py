@@ -1,4 +1,6 @@
 import torch
+import numpy as np
+
 from argparse import ArgumentParser
 from pathlib import Path
 
@@ -9,32 +11,24 @@ from sklearn.model_selection import train_test_split
 
 from bioblp.benchmarking.train_utils import load_feature_data
 from bioblp.logger import get_logger
+from bioblp.benchmarking.config import BenchmarkSplitConfig
+
+from typing import Union, Tuple, Dict, List
 
 RANDOM_STATE = 12
 
 logger = get_logger(__name__)
 
 
-def get_data_split_callback(n_splits, random_state, shuffle=True):
-    def split_fn(X, y):
+def splits_iterable(splits_path):
+    splits_data = torch.load(splits_path)
+    n = len(splits_data)
 
-        if n_splits == 1:
-            X_indices = torch.arange(len(X))
-
-            train_idx, test_idx, _, _ = train_test_split(
-                X_indices, y, test_size=0.1, stratify=y, random_state=random_state)
-
-            return [(train_idx, test_idx)]
-
-        elif n_splits > 1:
-            cv = StratifiedKFold(
-                n_splits=n_splits, shuffle=shuffle, random_state=random_state
-            )
-            return cv.split(X, y)
-        else:
-            raise ValueError("parameter n_splits of {n_splits}, unsupported")
-
-    return split_fn
+    num = 0
+    while num < n:
+        fold_data = splits_data[num]
+        yield (fold_data["split_idx"], fold_data["train_idx"], fold_data["test_idx"])
+        num += 1
 
 
 def get_split_struct(train, test, idx) -> dict:
@@ -45,9 +39,32 @@ def get_split_struct(train, test, idx) -> dict:
     }
 
 
-def main(data, n_folds, outdir):
-    data_path = Path(data)
-    outdir = Path(outdir)
+def load_split(splits_file: Path, split_idx: int) -> Tuple[np.array, np.array]:
+
+    splits_data = torch.load(splits_file)
+
+    fold_splits = splits_data[split_idx]
+    train_idx = fold_splits["train_idx"]
+    test_idx = fold_splits["test_idx"]
+    fold_idx = fold_splits["split_idx"]
+
+    return (fold_idx, train_idx, test_idx)
+
+
+def main(data, n_folds=None, outdir=None, conf=None, override_data_root=None, override_run_id=None):
+
+    if conf is not None:
+        config = BenchmarkSplitConfig.from_toml(conf, run_id=override_run_id)
+        if override_data_root is not None:
+            config.data_root = override_data_root
+
+        n_folds = config.n_splits
+        data_path = Path(data)
+        outdir = config.resolve_outdir()
+    else:
+        data_path = Path(data)
+        outdir = Path(outdir)
+
     outdir.mkdir(parents=True, exist_ok=True)
 
     # load raw benchmark data
@@ -86,11 +103,18 @@ if __name__ == "__main__":
 
     parser = ArgumentParser(
         description="Preprocess benchmark triples (E.g. DPI data) for downstream prediction task")
+
+    parser.add_argument("--conf", type=str, default=None,
+                        help="Path to config file")
     parser.add_argument("--data", type=str,
                         help="Path to pick up benchmark data")
-    parser.add_argument("--n_folds", type=int, default=5,
+    parser.add_argument("--n_folds", type=int, default=None,
                         help="Number of cv folds to produce")
-    parser.add_argument("--outdir", type=str,
+    parser.add_argument("--outdir", type=str, default=None,
                         help="Path to data dir to write output")
-    args = parser.parse_args()
-    main(**vars(args))
+    parser.add_argument("--override_data_root", type=str,
+                        help="Path to root of data tree")
+    parser.add_argument("--override_run_id", type=str,
+                        help="Override run_id")
+args = parser.parse_args()
+main(**vars(args))

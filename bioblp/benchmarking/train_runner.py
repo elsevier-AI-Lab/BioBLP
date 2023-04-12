@@ -1,57 +1,26 @@
 import torch
 import os
-import string
-import optuna
-import numpy as np
-import random as rn
+
 import pandas as pd
-import abc
-import joblib
 
-import wandb
-import multiprocessing as mp
-
-from torch import nn
-from torch import Tensor
 from argparse import ArgumentParser
 from dataclasses import asdict
 from pathlib import Path
 from time import time
 from collections import defaultdict
-from optuna.integration.wandb import WeightsAndBiasesCallback
-
-
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import roc_auc_score
-from sklearn.metrics import precision_score
-from sklearn.metrics import recall_score
-from sklearn.metrics import fbeta_score
-from sklearn.metrics import make_scorer
-from sklearn.metrics import accuracy_score
-from sklearn.metrics import precision_recall_curve
-from sklearn.metrics import roc_curve
-from sklearn.metrics import auc
 
 from collections import defaultdict
 
-from sklearn.model_selection import StratifiedKFold
-from sklearn.model_selection import cross_validate
-from sklearn.model_selection import train_test_split
-from skorch import NeuralNetClassifier
-from skorch.callbacks import EarlyStopping
-from skorch.callbacks import EpochScoring
-from typing import Union, Tuple, Dict
+from typing import Tuple, Dict
 
 from bioblp.logger import get_logger
 from bioblp.benchmarking.config import BenchmarkTrainConfig
-from bioblp.benchmarking.hpo import LRObjective
-from bioblp.benchmarking.hpo import MLPObjective
-from bioblp.benchmarking.hpo import RFObjective
-from bioblp.benchmarking.hpo import transform_model_inputs
-from bioblp.benchmarking.hpo import create_train_objective
-from bioblp.benchmarking.train_utils import load_feature_data
+
+from bioblp.benchmarking.train import model_hpo
 from bioblp.benchmarking.train_utils import validate_features_exist
+from bioblp.benchmarking.train_utils import get_scorers
+from bioblp.benchmarking.train_utils import get_model_label
+from bioblp.benchmarking.train_utils import unique_study_prefix
 
 
 logger = get_logger(__name__)
@@ -63,7 +32,7 @@ DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 LOG_WANDB = True
 
 
-def train_job_multiprocess(models, X, y, splits_callback, feature_dir, scoring, refit_params, wandb_tag, n_iter,
+def train_job_multiprocess(models, splits, feature_dir, scoring, refit_params, wandb_tag, n_iter,
                            outdir, study_prefix, timestamp, n_jobs: int, random_state=SEED) -> Tuple[list, list]:
     logger.info(f"Running training as multiprocessing...")
 
@@ -79,13 +48,26 @@ def train_job_multiprocess(models, X, y, splits_callback, feature_dir, scoring, 
 
         name = get_model_label(feature=model_feature, model=model_clf)
 
-        for fold_i, (train_idx, test_idx) in enumerate(splits_callback(X, y)):
+        for fold_i, train_idx, test_idx in splits:
 
             result_i = pool.apply_async(
-                hpo_single_model,
-                (fold_i, train_idx, test_idx),
-                dict(name=name, feature_dir=feature_dir, model_feature=model_feature, scoring=scoring, refit_params=refit_params,  wandb_tag=wandb_tag,
-                     n_iter=n_iter, outdir=outdir, study_prefix=study_prefix, model_clf=model_clf, timestamp=timestamp, random_state=random_state))
+                model_hpo,
+                # (fold_i, train_idx, test_idx),
+                dict(model_label=name,
+                     model_clf=model_clf,
+                     model_feature=model_feature,
+                     feature_dir=feature_dir,
+                     fold_i=fold_i,
+                     train_idx=train_idx,
+                     test_idx=test_idx,
+                     scoring=scoring,
+                     n_iter=n_iter,
+                     refit_params=refit_params,
+                     outdir=outdir,
+                     study_prefix=study_prefix,
+                     timestamp=timestamp,
+                     wandb_tag=wandb_tag,
+                     random_state=random_state))
 
             async_results.append((name, result_i))
 
@@ -102,8 +84,8 @@ def train_job_multiprocess(models, X, y, splits_callback, feature_dir, scoring, 
     return scores, study_dfs
 
 
-def train_job(models, X, y, splits_callback, feature_dir, scoring, refit_params, wandb_tag, n_iter,
-              outdir, study_prefix, timestamp, random_state=SEED):
+def train_job(models, splits, feature_dir, scoring, refit_params, wandb_tag, n_iter,
+              outdir, study_prefix, timestamp, random_state=SEED) -> Tuple[list, list]:
 
     t_total = 0
 
@@ -119,12 +101,25 @@ def train_job(models, X, y, splits_callback, feature_dir, scoring, refit_params,
         model_clf = model_cfg.get("model")
         name = get_model_label(feature=model_feature, model=model_clf)
 
-        for fold_i, (train_idx, test_idx) in enumerate(splits_callback(X, y)):
+        for fold_i, train_idx, test_idx in splits:
             t_start = int(time())
 
-            result_i = hpo_single_model(fold_i, train_idx, test_idx,
-                                        name=name, feature_dir=feature_dir, model_feature=model_feature, scoring=scoring, refit_params=refit_params,  wandb_tag=wandb_tag,
-                                        n_iter=n_iter, outdir=outdir, study_prefix=study_prefix, model_clf=model_clf, timestamp=timestamp, random_state=random_state)
+            result_i = model_hpo(model_label=name,
+                                 model_clf=model_clf,
+                                 model_feature=model_feature,
+                                 feature_dir=feature_dir,
+                                 fold_i=fold_i,
+                                 train_idx=train_idx,
+                                 test_idx=test_idx,
+                                 scoring=scoring,
+                                 n_iter=n_iter,
+                                 refit_params=refit_params,
+                                 outdir=outdir,
+                                 study_prefix=study_prefix,
+                                 timestamp=timestamp,
+                                 wandb_tag=wandb_tag,
+                                 random_state=random_state)
+
             results.append((name, result_i))
 
             t_duration = int(time()) - t_start
@@ -142,17 +137,13 @@ def train_job(models, X, y, splits_callback, feature_dir, scoring, refit_params,
 
 def run_training_jobs(models: Dict[str, dict],
                       data_dir: str,
-                      X,
-                      y,
+                      splits_path: Path,
                       scoring: dict,
                       outdir: Path,
-                      n_splits: int = 5,
                       n_iter: int = 10,
-                      shuffle: bool = False,
                       random_state: int = SEED,
                       n_jobs: int = -1,
                       refit_params: list = ["AUCPR", "AUCROC"],
-                      verbose: int = 14,
                       timestamp: str = None,
                       wandb_tag: str = None
                       ) -> dict:
@@ -195,17 +186,14 @@ def run_training_jobs(models: Dict[str, dict],
     study_prefix = unique_study_prefix()
     feature_dir = Path(data_dir)
 
-    splits_callback = get_data_split_callback(
-        n_splits=n_splits, random_state=random_state, shuffle=shuffle)
+    splits_iterable = splits_iterable(splits_path)
 
     if n_jobs <= 1:
         #
         # Single process, eg when on GPU
         #
         scores, study_dfs = train_job(models=models,
-                                      X=X,
-                                      y=y,
-                                      splits_callback=splits_callback,
+                                      splits=splits_iterable,
                                       feature_dir=feature_dir,
                                       scoring=scoring,
                                       refit_params=refit_params,
@@ -220,9 +208,7 @@ def run_training_jobs(models: Dict[str, dict],
         # Multiprocessing
         #
         scores, study_dfs = train_job_multiprocess(models=models,
-                                                   X=X,
-                                                   y=y,
-                                                   splits_callback=splits_callback,
+                                                   splits=splits_iterable,
                                                    feature_dir=feature_dir,
                                                    scoring=scoring,
                                                    refit_params=refit_params,
@@ -235,12 +221,20 @@ def run_training_jobs(models: Dict[str, dict],
                                                    n_jobs=n_jobs)
 
     # collect and store trial information
-    trials_file = outdir.joinpath(f"{timestamp}-{study_prefix}.csv")
+
+    saving_time = str(int(time()))
+
+    trials_file = outdir.joinpath(
+        f"{study_prefix}-{saving_time}-trials.csv")
     study_trials_df = pd.concat(study_dfs)
     study_trials_df.to_csv(
         trials_file, mode='a', header=not os.path.exists(trials_file), index=False)
 
-    return scores
+    # sae scires
+    torch.save([scores], outdir.joinpath(
+        f"{study_prefix}-{saving_time}-scores.pt"))
+
+    return scores, study_trials_df
 
 
 def run(conf: str, n_proc: int = -1, tag: str = None, override_data_root=None, override_run_id=None, **kwargs):
@@ -261,6 +255,7 @@ def run(conf: str, n_proc: int = -1, tag: str = None, override_data_root=None, o
         config.data_root = override_data_root
 
     feature_dir = config.resolve_feature_dir()
+    splits_file = config.resolve_splits_file()
 
     models_out = config.resolve_outdir()
     models_out.mkdir(parents=True, exist_ok=True)
@@ -275,19 +270,15 @@ def run(conf: str, n_proc: int = -1, tag: str = None, override_data_root=None, o
         # Setup classifiers & pipelines
         ############
 
-        X_bm, y_bm = load_feature_data(
-            feature_dir.joinpath("raw.pt"), dev_run=kwargs["dev_run"])
-
         logger.info("Config contains models {}.".format(config.models))
 
-        scorer = get_scorers()
+        scoring = get_scorers()
 
-        cv_scores = run_training_jobs(
+        scores, trials = run_training_jobs(
             models=config.models,
             data_dir=feature_dir,
-            X=X_bm,
-            y=y_bm,
-            scoring=scorer,
+            splits_path=splits_file,
+            scoring=scoring,
             n_iter=config.n_iter,
             n_splits=config.outer_n_folds,
             shuffle=config.shuffle,
@@ -299,17 +290,16 @@ def run(conf: str, n_proc: int = -1, tag: str = None, override_data_root=None, o
             wandb_tag=tag
         )
 
-        for algo, scores in cv_scores.items():
+        for algo, scores in scores.items():
             logger.info("Scores {}: {}".format(algo, scores))
 
-        exp_output["results"] = cv_scores
+        exp_output["results"] = scores
 
         logger.info(exp_output)
 
-        file_out = models_out.joinpath(
-            "cv_scores_{}.npy".format(run_id))
+        file_out = models_out.joinpath(f"{run_id}-metadata.pt")
         logger.info("Saving to {}".format(file_out))
-        np.save(file_out, exp_output)
+        torch.save(exp_output, file_out)
 
     else:
         logger.warning(f"Terminating...")
