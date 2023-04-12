@@ -61,7 +61,7 @@ def main(data, n_folds, outdir):
     train_idx, test_idx, _, _ = train_test_split(
         X_indices, y_bm, test_size=0.1, stratify=y_bm, random_state=RANDOM_STATE)
 
-    split_data = [get_split_struct(train_idx, test_idx, idx=0)]
+    split_data = {0: get_split_struct(train_idx, test_idx, idx=0)}
     train_test_split_file = outdir.joinpath("train-test-split.pt")
     torch.save(split_data, train_test_split_file)
 
@@ -74,7 +74,7 @@ def main(data, n_folds, outdir):
     splits = [(train, test, idx)
               for idx, (train, test) in enumerate(cv.split(X_bm, y_bm))]
 
-    cv_data = [get_split_struct(x[0], x[1], x[2]) for x in splits]
+    cv_data = {x[2]: get_split_struct(x[0], x[1], x[2]) for x in splits}
 
     cv_split_file = outdir.joinpath("cv-splits.pt")
     torch.save(cv_data, cv_split_file)
