@@ -235,7 +235,7 @@ class RFObjective(TrainObjective):
         criterion = trial.suggest_categorical(
             "criterion", ["gini", "entropy"])
         n_estimators = trial.suggest_int(
-            "n_estimators", low=100, high=300, step=50)
+            "n_estimators", low=100, high=500, step=50)
         min_samples_leaf = trial.suggest_int(
             "min_samples_leaf", low=1, high=10, log=True
         )
