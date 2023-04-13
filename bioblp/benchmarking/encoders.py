@@ -33,6 +33,8 @@ COMPLEX = "complex"
 TRANSE = "transe"
 ROTATE = "rotate"
 BIOBLPD = "bioblpd"
+BIOBLPM = "bioblpm"
+BIOBLPP = "bioblpp"
 LABEL = "label"
 
 
@@ -608,5 +610,5 @@ def get_encoder(encoder_label: str, encoder_args: Dict[str, dict], entities: Lis
         return RandomNoisePairEncoder(entities=entities, **encoder_args)
     elif encoder_label == STRUCTURAL:
         return StructuralPairEncoder(**encoder_args)
-    elif encoder_label in {COMPLEX, TRANSE, ROTATE, BIOBLPD}:
+    elif encoder_label in {COMPLEX, TRANSE, ROTATE, BIOBLPD, BIOBLPM, BIOBLPP}:
         return KGEMPairEncoder(**encoder_args)
