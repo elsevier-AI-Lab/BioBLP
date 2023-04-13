@@ -21,7 +21,7 @@ from bioblp.benchmarking.train_utils import validate_features_exist
 from bioblp.benchmarking.train_utils import get_scorers
 from bioblp.benchmarking.train_utils import get_model_label
 from bioblp.benchmarking.train_utils import unique_study_prefix
-
+from bioblp.benchmarking.split import get_splits_iter
 
 logger = get_logger(__name__)
 
@@ -32,7 +32,7 @@ DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 LOG_WANDB = True
 
 
-def train_job_multiprocess(models, splits, feature_dir, scoring, refit_params, wandb_tag, n_iter,
+def train_job_multiprocess(models, splits_fn, feature_dir, scoring, refit_params, wandb_tag, n_iter,
                            outdir, study_prefix, timestamp, n_jobs: int, random_state=SEED) -> Tuple[list, list]:
     logger.info(f"Running training as multiprocessing...")
 
@@ -48,18 +48,18 @@ def train_job_multiprocess(models, splits, feature_dir, scoring, refit_params, w
 
         name = get_model_label(feature=model_feature, model=model_clf)
 
-        for fold_i, train_idx, test_idx in splits:
+        for fold_i, train_idx, test_idx in splits_fn():
 
             result_i = pool.apply_async(
                 model_hpo,
-                # (fold_i, train_idx, test_idx),
+                (fold_i, train_idx, test_idx),
                 dict(model_label=name,
                      model_clf=model_clf,
                      model_feature=model_feature,
                      feature_dir=feature_dir,
-                     fold_i=fold_i,
-                     train_idx=train_idx,
-                     test_idx=test_idx,
+                     #  fold_i=fold_i,
+                     #  train_idx=train_idx,
+                     #  test_idx=test_idx,
                      scoring=scoring,
                      n_iter=n_iter,
                      refit_params=refit_params,
@@ -84,7 +84,7 @@ def train_job_multiprocess(models, splits, feature_dir, scoring, refit_params, w
     return scores, study_dfs
 
 
-def train_job(models, splits, feature_dir, scoring, refit_params, wandb_tag, n_iter,
+def train_job(models, splits_fn, feature_dir, scoring, refit_params, wandb_tag, n_iter,
               outdir, study_prefix, timestamp, random_state=SEED) -> Tuple[list, list]:
 
     t_total = 0
@@ -101,7 +101,7 @@ def train_job(models, splits, feature_dir, scoring, refit_params, wandb_tag, n_i
         model_clf = model_cfg.get("model")
         name = get_model_label(feature=model_feature, model=model_clf)
 
-        for fold_i, train_idx, test_idx in splits:
+        for fold_i, train_idx, test_idx in splits_fn():
             t_start = int(time())
 
             result_i = model_hpo(model_label=name,
@@ -186,14 +186,14 @@ def run_training_jobs(models: Dict[str, dict],
     study_prefix = unique_study_prefix()
     feature_dir = Path(data_dir)
 
-    splits_iterable = splits_iterable(splits_path)
+    splits_fn = get_splits_iter(splits_path)
 
     if n_jobs <= 1:
         #
         # Single process, eg when on GPU
         #
         scores, study_dfs = train_job(models=models,
-                                      splits=splits_iterable,
+                                      splits_fn=splits_fn,
                                       feature_dir=feature_dir,
                                       scoring=scoring,
                                       refit_params=refit_params,
@@ -208,7 +208,7 @@ def run_training_jobs(models: Dict[str, dict],
         # Multiprocessing
         #
         scores, study_dfs = train_job_multiprocess(models=models,
-                                                   splits=splits_iterable,
+                                                   splits_fn=splits_fn,
                                                    feature_dir=feature_dir,
                                                    scoring=scoring,
                                                    refit_params=refit_params,
@@ -252,7 +252,7 @@ def run(conf: str, n_proc: int = -1, tag: str = None, override_data_root=None, o
     config = BenchmarkTrainConfig.from_toml(conf_path, run_id=run_id)
 
     if override_data_root is not None:
-        config.data_root = override_data_root
+        config.data_root = Path(override_data_root)
 
     feature_dir = config.resolve_feature_dir()
     splits_file = config.resolve_splits_file()
@@ -280,8 +280,6 @@ def run(conf: str, n_proc: int = -1, tag: str = None, override_data_root=None, o
             splits_path=splits_file,
             scoring=scoring,
             n_iter=config.n_iter,
-            n_splits=config.outer_n_folds,
-            shuffle=config.shuffle,
             n_jobs=n_proc,
             refit_params=config.refit_params,
             random_state=SEED,
@@ -297,7 +295,9 @@ def run(conf: str, n_proc: int = -1, tag: str = None, override_data_root=None, o
 
         logger.info(exp_output)
 
-        file_out = models_out.joinpath(f"{run_id}-metadata.pt")
+        saving_time = str(int(time()))
+
+        file_out = models_out.joinpath(f"{run_id}-{saving_time}-metadata.pt")
         logger.info("Saving to {}".format(file_out))
         torch.save(exp_output, file_out)
 

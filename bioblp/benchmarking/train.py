@@ -71,13 +71,13 @@ class HistoryCallback(object):
         self.history = model.history
 
 
-def model_hpo(model_label: str,
+def model_hpo(fold_i: str,
+              train_idx: np.array,
+              test_idx: np.array,
+              model_label: str,
               model_clf: str,
               model_feature: str,
               feature_dir: Path,
-              fold_i: str,
-              train_idx: np.array,
-              test_idx: np.array,
               scoring: dict,
               n_iter: int,
               refit_params: List[str],
@@ -95,6 +95,8 @@ def model_hpo(model_label: str,
     scores[model_label]["curves"] = defaultdict(list)
     scores[model_label]["params"] = []
     scores[model_label]["fold"] = fold_i
+
+    feature_dir = Path(feature_dir)
 
     # load feature set
     X_feat, y_feat = load_feature_data(
@@ -208,9 +210,6 @@ def model_hpo(model_label: str,
         wandb_kwargs["tags"].append("best")
         wandb.init(**wandb_kwargs)
 
-        wandb_kwargs.update({"config": model_params})
-        wandb.config.update(wandb_kwargs["config"])
-
     # torch tensor transform if MLP else return same
     X_t, y_t = transform_model_inputs(X_feat, y_feat, model_name=model_label)
 
@@ -229,6 +228,9 @@ def model_hpo(model_label: str,
 
     if LOG_WANDB:
         logger.info("Logging scores to wandb...")
+
+        # wandb_kwargs.update({"config": model_params})
+        wandb.config.update(model_params)
 
         wandb.log(scores_i)
 
@@ -270,8 +272,10 @@ def model_hpo(model_label: str,
 
     # store model
     logger.info("Storing model...")
+
+    savetime = str(int(time()))
     joblib.dump(model, outdir.joinpath(
-        f"{timestamp}-{study_name}-{model_label}.joblib"))
+        f"{study_name}-{timestamp}-{savetime}-model.joblib"))
 
     return (scores, study_trials_df)
 
@@ -340,6 +344,7 @@ def main(model_clf: str, model_feature: str, feature_dir: str, splits_path: str,
 
 
 if __name__ == "__main__":
+
     parser = ArgumentParser(description="Run model training procedure")
     parser.add_argument("--model_clf", type=str,
                         help="Specify classifier, from [LR, RF, MLP]")

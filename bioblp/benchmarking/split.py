@@ -20,15 +20,18 @@ RANDOM_STATE = 12
 logger = get_logger(__name__)
 
 
-def splits_iterable(splits_path):
-    splits_data = torch.load(splits_path)
-    n = len(splits_data)
+def get_splits_iter(splits_path):
+    def splits_iterable():
+        splits_data = torch.load(splits_path)
+        n = len(splits_data)
 
-    num = 0
-    while num < n:
-        fold_data = splits_data[num]
-        yield (fold_data["split_idx"], fold_data["train_idx"], fold_data["test_idx"])
-        num += 1
+        num = 0
+        while num < n:
+            fold_data = splits_data[num]
+            yield (fold_data["split_idx"], fold_data["train_idx"], fold_data["test_idx"])
+            num += 1
+
+    return splits_iterable
 
 
 def get_split_struct(train, test, idx) -> dict:
@@ -116,5 +119,5 @@ if __name__ == "__main__":
                         help="Path to root of data tree")
     parser.add_argument("--override_run_id", type=str,
                         help="Override run_id")
-args = parser.parse_args()
-main(**vars(args))
+    args = parser.parse_args()
+    main(**vars(args))

@@ -176,6 +176,8 @@ class LRObjective(TrainObjective):
             "max_iter": 1000,
             "solver": "lbfgs",
             "n_jobs": -1,
+            "verbose": 1,
+            "class_weight": "balanced"
         }
         return default_params
 
@@ -186,21 +188,21 @@ class LRObjective(TrainObjective):
         return LogisticRegression(**kwargs)
 
     def _clf_objective(self, trial):
-        random_state = SEED
-        n_jobs = -1
 
         C = trial.suggest_float("C", 1e-5, 1e3, log=True)
         solver = trial.suggest_categorical("solver", ["lbfgs"])
         max_iter = trial.suggest_categorical("max_iter", [1000])
 
-        clf_obj = self.model_init(
-            random_state=random_state,
-            n_jobs=n_jobs,
-            C=C,
-            solver=solver,
-            max_iter=max_iter,
-            class_weight="balanced",
-        )
+        params = self.get_default_params()
+
+        params.update({
+            "C": C,
+            "solver": solver,
+            "max_iter": max_iter
+        })
+
+        clf_obj = self.model_init(**params)
+
         return clf_obj
 
 
@@ -217,6 +219,8 @@ class RFObjective(TrainObjective):
             "max_features": "sqrt",
             "random_state": SEED,
             "n_jobs": -1,
+            "verbose": 1,
+            "class_weight": "balanced"
         }
         return default_params
 
@@ -227,8 +231,6 @@ class RFObjective(TrainObjective):
         return RandomForestClassifier(**kwargs)
 
     def _clf_objective(self, trial):
-        random_state = SEED
-        n_jobs = -1
 
         criterion = trial.suggest_categorical(
             "criterion", ["gini", "entropy"])
@@ -243,16 +245,18 @@ class RFObjective(TrainObjective):
         max_depth = trial.suggest_categorical(
             "max_depth", [5, 8, 15, 25, 30, None])
 
-        clf_obj = self.model_init(
-            n_estimators=n_estimators,
-            min_samples_leaf=min_samples_leaf,
-            min_samples_split=min_samples_split,
-            max_depth=max_depth,
-            criterion=criterion,
-            random_state=random_state,
-            n_jobs=n_jobs,
-            class_weight="balanced",
-        )
+        params = self.get_default_params()
+
+        params.update({
+            "n_estimators": n_estimators,
+            "min_samples_leaf": min_samples_leaf,
+            "min_samples_split": min_samples_split,
+            "max_depth": max_depth,
+            "criterion": criterion,
+        })
+
+        clf_obj = self.model_init(**params)
+
         return clf_obj
 
 
@@ -295,7 +299,7 @@ class MLPObjective(TrainObjective):
         params = {}
 
         params.update(model.get_params_for("module"))
-        params.update(model.get_params_for("optimizer"))
+        # params.update(model.get_params_for("optimizer"))
 
         return params
 
