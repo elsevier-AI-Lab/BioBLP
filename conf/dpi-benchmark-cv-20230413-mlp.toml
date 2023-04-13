@@ -1,6 +1,6 @@
 
 data_root = "/home/jovyan/workbench-shared-folder/bioblp/"
-experiment_root = "data/benchmarks/experiments/dpi_fda/"
+experiment_root = "data/benchmarks/experiments/DPI/"
 
 [sampling]
 outdir = "sampled"
@@ -11,7 +11,7 @@ kg_triples_dir = "data/benchmarks/experiments/encoders/rotate/training_triples/"
 outdir = "features"
 transform = "concat"
 missing_values = "mean"
-encoders = ["noise", "structural", "complex", "rotate", "transe", "bioblpd" ]
+encoders = ["noise", "structural", "complex", "rotate", "transe", "bioblpd", "bioblpm", "bioblpp" ]
 
 [features.encoder_args.noise]
 random_seed = 24
@@ -32,67 +32,55 @@ model_dir = "data/benchmarks/experiments/encoders/transe/"
 [features.encoder_args.bioblpd]
 model_dir = "data/benchmarks/experiments/encoders/bioblpd/"
 
+[features.encoder_args.bioblpm]
+model_dir = "data/benchmarks/experiments/encoders/bioblpm/"
+
+[features.encoder_args.bioblpp]
+model_dir = "data/benchmarks/experiments/encoders/bioblpp/"
+
+
+[split]
+n_splits = 5
+outdir = "splits"
+
+
 [models]
 
-
-[models.noise_lr]
+[models.noise_mlp]
 feature = "noise"
-model = "LR"
+model = "MLP"
 
-[models.noise_rf]
-feature = "noise"
-model = "RF"
-
-
-[models.structural_lr]
+[models.structural_mlp]
 feature = "structural"
-model = "LR"
+model = "MLP"
 
-[models.structural_rf]
-feature = "structural"
-model = "RF"
-
-
-[models.transe_lr]
+[models.transe_mlp]
 feature = "transe"
-model = "LR"
+model = "MLP"
 
-[models.transe_rf]
-feature = "transe"
-model = "RF"
-
-
-[models.complex_lr]
+[models.complex_mlp]
 feature = "complex"
-model = "LR"
+model = "MLP"
 
-[models.complex_rf]
-feature = "complex"
-model = "RF"
-
-
-[models.rotate_lr]
+[models.rotate_mlp]
 feature = "rotate"
-model = "LR"
+model = "MLP"
 
-[models.rotate_rf]
-feature = "rotate"
-model = "RF"
-
-
-[models.bioblpd_lr]
+[models.bioblpd_mlp]
 feature = "bioblpd"
-model = "LR"
+model = "MLP"
 
-[models.bioblpd_rf]
-feature = "bioblpd"
-model = "RF"
+[models.bioblpm_mlp]
+feature = "bioblpm"
+model = "MLP"
+
+[models.bioblpp_mlp]
+feature = "bioblpp"
+model = "MLP"
 
 
 [train]
 n_iter = 10
-inner_n_folds = 1
-outer_n_folds = 5
-shuffle = true
+splits_file = "cv-splits.pt"
 refit_params = ["AUCPR", "AUCROC"]
 outdir = "models"

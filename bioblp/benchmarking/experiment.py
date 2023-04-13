@@ -7,7 +7,7 @@ from bioblp.benchmarking.config import BenchmarkFeatureConfig
 from bioblp.benchmarking.config import BenchmarkTrainConfig
 
 from bioblp.benchmarking.featurise import main as featurise_main
-from bioblp.benchmarking.train import run as train_main
+from bioblp.benchmarking.train_runner import run as train_main
 from bioblp.benchmarking.split import main as split_main
 
 
