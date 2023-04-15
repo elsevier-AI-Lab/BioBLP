@@ -155,9 +155,8 @@ def model_hpo(fold_i: str,
     if LOG_WANDB:
         tracking_metrics = refit_params
 
-        if "MLP" in model_label:
-            tracking_metrics += ["train_loss",
-                                 "valid_loss", "valid_AUCPR", "AUCROC"]
+#         if "MLP" in model_label:
+#             tracking_metrics += ["train_loss", "valid_loss"]
 
         wandb_callback = WeightsAndBiasesCallback(
             metric_name=tracking_metrics, wandb_kwargs=wandb_kwargs, as_multirun=True)

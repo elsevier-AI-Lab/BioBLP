@@ -114,11 +114,11 @@ class TrainObjective(OptunaTrainObjective):
         trial.set_user_attr('metrics', result)
         trial.set_user_attr('run_id', self.run_id)
         trial.set_user_attr('model_params', self._get_params_for(self._model))
-
+        
         score_to_optimize = [
             result.get("valid_{}".format(param_x)) for param_x in self.refit_params
         ]
-
+        
         if self._callback is not None:
             self._callback.set_data(self._model)
 
