@@ -305,9 +305,23 @@ class MLPObjective(TrainObjective):
 
     def model_init(self, **kwargs):
         aucpr_scorer = get_scorers().get("AUCPR")
-
-        scorer_callback = EpochScoring(
+        aucroc_scorer = get_scorers().get("AUCROC")
+        recall_scorer = get_scorers().get("recall")
+        precision_scorer = get_scorers().get("precision")
+        f1_scorer = get_scorers().get("f1")
+        
+        aucpr_scorer_callback = EpochScoring(
             aucpr_scorer, lower_is_better=False, on_train=False, name="valid_AUCPR")
+        aucroc_scorer_callback = EpochScoring(
+            aucroc_scorer, lower_is_better=False, on_train=False, name="valid_AUCROC")
+        recall_scorer_callback = EpochScoring(
+            recall_scorer, lower_is_better=False, on_train=False, name="valid_recall")
+        precision_scorer_callback = EpochScoring(
+            precision_scorer, lower_is_better=False, on_train=False, name="valid_precision")
+        f1_scorer_callback = EpochScoring(
+            f1_scorer, lower_is_better=False, on_train=False, name="valid_f1")
+        
+        scorers = [aucpr_scorer_callback, aucroc_scorer_callback, precision_scorer_callback, f1_scorer_callback, recall_scorer_callback]
 
 #         optimizer = torch.optim.Adagrad()
         lr_scheduler = LRScheduler(policy=ReduceLROnPlateau,
@@ -325,6 +339,8 @@ class MLPObjective(TrainObjective):
                                        threshold=0.001,
                                        threshold_mode="rel",
                                        lower_is_better=False)
+        
+        nn_callbacks = scorers + [early_stopping, lr_scheduler]
 
         net = NeuralNetClassifier(
             module=MLP,
@@ -336,7 +352,7 @@ class MLPObjective(TrainObjective):
             optimizer__lr=0.01,
             batch_size=64,
             # train_split=0.8,
-            callbacks=[scorer_callback, early_stopping, lr_scheduler],
+            callbacks=nn_callbacks,
             device=DEVICE,
             ** kwargs,
         )

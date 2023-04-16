@@ -236,14 +236,24 @@ def model_hpo(fold_i: str,
         if "MLP" in model_label:
             history = model.history
 
-            train_loss, valid_loss, valid_AUCPR = history[:, (
-                'train_loss', 'valid_loss', 'valid_AUCPR')]
+            train_loss = history[:, 'train_loss']
+            valid_loss = history[:, 'valid_loss']
+            valid_AUCPR = history[:, 'valid_AUCPR']
+            valid_AUCROC = history[:, 'valid_AUCROC']
+            valid_precision = history[:, 'valid_precision']
+            valid_f1 = history[:, "valid_f1"]
+            valid_recall = history[:, "valid_recall"]
 
             for step_idx in range(0, len(train_loss)):
                 wandb.log({
                     "train_loss": train_loss[step_idx],
                     "valid_loss": valid_loss[step_idx],
-                    "valid_AUCPR": valid_AUCPR[step_idx]}, step=step_idx)
+                    "valid_AUCPR": valid_AUCPR[step_idx],
+                    "valid_AUCROC": valid_AUCROC[step_idx],
+                    "valid_precision": valid_precision[step_idx],
+                    "valid_f1": valid_f1[step_idx],
+                    "valid_recall": valid_recall[step_idx]
+                }, step=step_idx)
 
         labels = ["0", "1"]
         y_true = y_t[test_idx]
