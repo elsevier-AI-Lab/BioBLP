@@ -120,6 +120,18 @@ def train_job(models, splits_fn, feature_dir, scoring, refit_params, wandb_tag, 
                                  wandb_tag=wandb_tag,
                                  random_state=random_state)
 
+            scores_i, trials_i = result_i
+
+            saving_time = str(int(time()))
+            torch.save([scores_i], outdir.joinpath(
+                f"{study_prefix}-{name}-{fold_i}-{saving_time}-scores.pt"))
+
+            # collect and store trial information
+            trials_file = outdir.joinpath(
+                f"{study_prefix}-{name}-{fold_i}-{saving_time}-trials.csv")
+            trials_i.to_csv(
+                trials_file, mode='a', header=not os.path.exists(trials_file), index=False)
+
             results.append((name, result_i))
 
             t_duration = int(time()) - t_start
