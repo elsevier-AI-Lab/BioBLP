@@ -16,7 +16,7 @@ cd $TMPDIR/$PROJ_FOLDER
 
 source activate bioblp
 
-git checkout fix_bioblp_init
+git checkout develop 
 
 python -m bioblp.train \
         --train_triples=data/biokgb/graph/biokg.links-train.csv \
@@ -25,7 +25,7 @@ python -m bioblp.train \
         --text_data=data/biokgb/properties/biokg_meshid_to_descr_name.tsv \
         --model=complex \
         --dimension=256 \
-        --loss_fn=crossentropy \
+        --loss_fn=bcewithlogits \
         --optimizer=adam \
         --learning_rate=2e-5 \
         --warmup_fraction=0.05 \
@@ -35,7 +35,7 @@ python -m bioblp.train \
         --num_negatives=512 \
         --in_batch_negatives=True \
         --log_wandb=True \
-        --notes="ComplEx BioBLP-D CE loss"
+        --notes="ComplEx BioBLP-D"
 
 # Keep files generated during job
 RESULTS_FOLDER=$HOME/$PROJ_FOLDER-$OUT_FOLDER
