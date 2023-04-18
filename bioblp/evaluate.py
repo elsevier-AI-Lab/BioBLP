@@ -36,7 +36,9 @@ class SavedRanksEvaluator(RankBasedEvaluator):
 def get_triple_ranks(args: Arguments):
     model_file = osp.join(args.model_path, 'trained_model.pkl')
 
-    model = torch.load(model_file)
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    model = torch.load(model_file).to(device)
     train = TriplesFactory.from_path_binary(osp.join(args.model_path,
                                                      'training_triples'))
 
