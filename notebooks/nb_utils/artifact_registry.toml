@@ -7,6 +7,7 @@ graph_dir = "graph"  # relative to biokgb_data_root_dir
 properties_dir = "properties"  # relative to biokgb_data_root_dir
 
 [biokgb_graph.data_splits]
+train = 'biokg.links-train.csv'
 valid = 'biokg.links-valid.csv'  # relative to biokgb_graph.graph_dir
 test = 'biokg.links-test.csv'
 dummy = 'biokg.links-dummy.csv'
@@ -16,12 +17,16 @@ dummy = 'biokg.links-dummy.csv'
 [biokgb_graph.properties.entity_type_metadata_paths]
 disease = "biokg.metadata.disease.tsv"  # relative to biokgb_properties.property_dir
 protein = "biokg.metadata.protein.tsv"
-# molecule = None
+drug = "biokg.metadata.drug.tsv"
+pathway = "biokg.metadata.pathway.tsv"
+genetic_disorder = "biokg.metadata.genetic_disorder.tsv"
+
 
 [biokgb_graph.properties.entity_attribute_paths]
 disease = "biokg_meshid_to_descr_name.tsv" # relative to biokgb_properties.property_dir
 protein = "protein_embeddings_full_24_12_protid_idx_mapping.json"
-# molecule = None
+drug = "biokg_molecule_embeddings_idx_mapping.json"
+# drug = "biokg_molecule_embeddings.pt"
 
 # model registry
 [kge_models]
@@ -35,4 +40,5 @@ protein = "protein_embeddings_full_24_12_protid_idx_mapping.json"
 rotate-otxtubeb = "rotate-otxtubeb"
 bioblpd-38uz9fjs = "bioblpd-38uz9fjs" 
 bioblpp-cttc3ucm = "bioblpp-cttc3ucm"
+bioblpm-5rxz3k57 = "bioblpm-5rxz3k57"
 

@@ -2,6 +2,8 @@ from abc import ABC
 from enum import Enum
 import matplotlib.pyplot as plt
 from .config import GraphRegistryConfig
+from .config import ModelRegistryConfig
+import json
 import numpy as np
 import pandas as pd
 from pathlib import Path
@@ -12,17 +14,22 @@ import torch
 from tqdm import tqdm
 import wandb
 import time
+from abc import ABC
+from dataclasses import dataclass
+
 
 ###### Define CONSTANTS ######
 TEST = "test"
 VALID = "valid"
 TRAIN = "train"
-TEST_RESTRICTED_DIS = 'TEST_RESTRICTED_DIS'
-TEST_EXCLUDING_DIS = 'TEST_EXCLUDING_DIS'
-VALID_RESTRICTED_DIS = 'VALID_RESTRICTED_DIS'
-TEST_RESTRICTED_PROT = 'TEST_RESTRICTED_PROT'
-TEST_EXCLUDING_PROT = 'TEST_EXCLUDING_PROT'
-
+DUMMY = "dummy"
+TEST_RESTRICTED_DIS = "TEST_RESTRICTED_DIS"
+TEST_EXCLUDING_DIS = "TEST_EXCLUDING_DIS"
+VALID_RESTRICTED_DIS = "VALID_RESTRICTED_DIS"
+TEST_RESTRICTED_PROT = "TEST_RESTRICTED_PROT"
+TEST_EXCLUDING_PROT = "TEST_EXCLUDING_PROT"
+TEST_RESTRICTED_ENT = "TEST_RESTRICTED_ENT"
+TEST_EXCLUDING_ENT = "TEST_EXCLUDING_ENT"
 
 COL_SOURCE = "src"
 COL_TARGET = "tgt"
@@ -32,6 +39,77 @@ DEGREE = "degree"
 IN_DEGREE = "in_degree"
 OUT_DEGREE = "out_degree"
 
+
+DISEASE = 'disease'
+DRUG = 'drug'
+PROTEIN = 'protein'
+
+##### Relations #####
+
+DPI = "DPI"
+DRUG_CARRIER = "DRUG_CARRIER"
+DRUG_ENZYME = 'DRUG_ENZYME'
+DRUG_TARGET = 'DRUG_TARGET'
+DRUG_TRANSPORTER = 'DRUG_TRANSPORTER'
+MEMBER_OF_COMPLEX = 'MEMBER_OF_COMPLEX'
+PPI = 'PPI'
+PROTEIN_DISEASE_ASSOCIATION = 'PROTEIN_DISEASE_ASSOCIATION'
+PROTEIN_PATHWAY_ASSOCIATION = 'PROTEIN_PATHWAY_ASSOCIATION'
+RELATED_GENETIC_DISORDER = 'RELATED_GENETIC_DISORDER'
+DDI = 'DDI'
+DRUG_DISEASE_ASSOCIATION = 'DRUG_DISEASE_ASSOCIATION'
+DRUG_PATHWAY_ASSOCIATION = 'DRUG_PATHWAY_ASSOCIATION'
+DRUG_TRANSPORTER = 'DRUG_TRANSPORTER'
+
+PROT_ASSOC_REL_NAMES = [DPI, DRUG_CARRIER, DRUG_ENZYME, 
+                        DRUG_TARGET, DRUG_TRANSPORTER, MEMBER_OF_COMPLEX, 
+                        PPI, PROTEIN_DISEASE_ASSOCIATION,
+                        PROTEIN_PATHWAY_ASSOCIATION, RELATED_GENETIC_DISORDER]
+
+DRUG_ASSOC_REL_NAMES = [DDI, DPI, DRUG_CARRIER, DRUG_DISEASE_ASSOCIATION, 
+                        DRUG_ENZYME, DRUG_PATHWAY_ASSOCIATION, DRUG_TARGET, 
+                        DRUG_TRANSPORTER]
+
+DISEASE_ASSOC_REL_NAMES = []  
+DEFAULT_RELATIVE_EVAL_DIR = "./metrics/"
+
+
+# todo infer this programmatically, but it might require iterating through all entities
+ENT_ASSOC_REL_NAMES = {
+    DISEASE: {COL_SOURCE: [],
+              COL_TARGET: []
+             },
+    PROTEIN: {COL_SOURCE: [MEMBER_OF_COMPLEX, 
+                           PPI,
+                           PROTEIN_DISEASE_ASSOCIATION,
+                           PROTEIN_PATHWAY_ASSOCIATION,
+                           RELATED_GENETIC_DISORDER,
+                          ],                       
+              COL_TARGET: [DPI,
+                           DRUG_CARRIER,
+                           DRUG_ENZYME,
+                           DRUG_TARGET,
+                           DRUG_TRANSPORTER,
+                          ],
+             },
+    DRUG: {COL_SOURCE: [DDI, DPI, DRUG_CARRIER, DRUG_DISEASE_ASSOCIATION, 
+                        DRUG_ENZYME, DRUG_PATHWAY_ASSOCIATION, DRUG_TARGET, 
+                        DRUG_TRANSPORTER],
+           COL_TARGET: []
+          },
+}
+              
+    
+
+def test_rel_list_validity(rel_list, train_triples):
+    '''
+    e.g.: test_rel_list_validity(ENT_ASSOC_REL_NAMES[PROTEIN][COL_TARGET], train_triples)
+    '''
+    for rel in rel_list:
+        assert rel in train_triples.relation_to_id, f"{rel} not in training relations"
+
+
+                     
 # WandB stuff
 WANDB_ENTITY_DISCOVERYLAB = "discoverylab"
 
@@ -349,4 +427,237 @@ def compute_node_degrees_in_out(triple_df):
     node_degree_df = node_degree_df.fillna(0)
     return node_degree_df
 
+
+
+def get_unique_endpoint_entities_in_testset_of_given_degree(test_df, degree, node_endpoint_type=None,):
+    if node_endpoint_type not in [COL_SOURCE, COL_TARGET]:
+        raise ValueError(f"Invalid node end point type {node_endpoint_type}. Allowed values are '{COL_SOURCE}' and '{COL_TARGET}'")
+    test_subset = test_df[test_df[f"{node_endpoint_type}_training_degree"]==degree]
+    test_unique_ents = test_subset[node_endpoint_type].unique()
+    return test_unique_ents
+
+
+class NodeDegreeEvalAnalyser(ABC):
+    '''
+    should be general enough to support 3 degrees of freedom in eval:
+    - model used
+    - entity type with attribute (protein/molecule/disease) -> THIS IS HANDLED OUTSIDE for now
+    - whether head/tail entity is being predicted (and thus keeping track of assoc rels)
+    
+    '''
+    def __init__(self, 
+                 train_triples: TriplesFactory, 
+                 rels_assoc_by_node_endpoint_type_dict: dict):
+        super().__init__()
+        self.node_train_degree_dict = None
+        self._compute_train_node_degree(train_triples=train_triples)
+        self.rels_assoc_by_node_endpoint_type_dict = rels_assoc_by_node_endpoint_type_dict
+        self.report = EvalReport()
+
+    def _compute_train_node_degree(self, train_triples):
+        training_df = pd.DataFrame(train_triples.triples, columns=[COL_SOURCE, COL_EDGE, COL_TARGET])
+        node_train_degree_df = compute_node_degrees_in_out(training_df)
+        node_train_degree_dict = pd.Series(node_train_degree_df.degree.values,index=node_train_degree_df.ent).to_dict()
+        self.node_train_degree_dict = node_train_degree_dict
+    
+    def prep_test_data(self, test_triples):
+        # now bucket the test triples according to node degree
+        test_triples_with_degree_df = pd.DataFrame(test_triples.triples, columns=[COL_SOURCE, COL_EDGE, COL_TARGET])
+        test_triples_with_degree_df["src_training_degree"] = test_triples_with_degree_df[COL_SOURCE].apply(lambda node: self.node_train_degree_dict.get(node, 0))
+        test_triples_with_degree_df["tgt_training_degree"] = test_triples_with_degree_df[COL_TARGET].apply(lambda node: self.node_train_degree_dict.get(node, 0))
+        return test_triples_with_degree_df
+
+    def evaluate(self,
+                 entity_type_to_predict,
+                 node_endpoint_to_predict, 
+                 test_triples, 
+                 model_id,
+                 train_triples, 
+                 valid_triples,
+                 model_registry_cfg=None,
+                 test_set_slug=TEST):
+        # self.node_endpoint_to_predict = node_endpoint_to_predict
+        test_triples_with_degree_df = self.prep_test_data(test_triples)
+        test_triples_with_degree_subset_df = self._create_test_df_subset_given_node_endpoint_type_to_predict(test_df = test_triples_with_degree_df, 
+                                                                                                             entity_type_to_predict=entity_type_to_predict,
+                                                                                                             node_endpoint_to_predict = node_endpoint_to_predict)
+        
+        results_by_node_degree = compute_metrics_over_triples_with_ent_node_endpoint(model_id=model_id, 
+                                                                           test_triples_w_node_degree_df=test_triples_with_degree_subset_df, 
+                                                                           test_set_slug=test_set_slug,
+                                                                           entity_type_to_predict=entity_type_to_predict,
+                                                                           node_endpoint_type=node_endpoint_to_predict,                                                           
+                                                                           train_triples=train_triples,
+                                                                           valid_triples=valid_triples,
+                                                                           rels_assoc_by_node_endpoint_type_dict=self.rels_assoc_by_node_endpoint_type_dict,
+                                                                      model_registry_cfg=model_registry_cfg)
+        
+
+        return results_by_node_degree
+
+
+                
+                
+    def format_eval_results(self, eval_results, eval_triple_endpoint_list=[EVAL_NODE_HEAD], eval_metric_type=EVAL_METRIC_REALISTIC):
+        results_by_node_degree_dicts = {}
+        for eval_triple_endpoint in eval_triple_endpoint:
+            
+            for result in eval_results:
+                     results_by_node_degree_dicts[result['ent_degree']] = make_results_dict_all_rel(result['results'],
+                                                                                            relation=result['relation'],
+                                                                                            relation_count=result['count'],
+                                                                                            triple_endpoint=eval_triple_endpoint,
+                                                                                            metric_type=eval_metric_type
+                                                                                           )
+        return results_by_node_degree_dicts
+        
+    def evaluate_and_format(self,
+                 entity_type_to_predict,
+                 node_endpoint_to_predict, 
+                 test_triples, 
+                 model_id,
+                 train_triples, 
+                 valid_triples,
+                 model_registry_cfg=None,
+                 test_set_slug=TEST,
+                 eval_triple_endpoint_list=[EVAL_NODE_HEAD, EVAL_NODE_TAIL],
+                 eval_metric_type=EVAL_METRIC_REALISTIC,
+                 eval_out_dir=None,
+                 write_results_to_file=True
+):
+        results_by_node_degree = self.evaluate(entity_type_to_predict,
+                                               node_endpoint_to_predict, 
+                                               test_triples, 
+                                               model_id,
+                                               train_triples, 
+                                               valid_triples,
+                                               model_registry_cfg=None,
+                                               test_set_slug=TEST)
+        
+        results_by_node_degree_dicts = self.format_eval_results(results_by_node_degree, 
+                                                 eval_triple_endpoint_list=eval_triple_endpoint_list, 
+                                                 eval_metric_type=eval_metric_type)
+        # self.report.results_dict = results_by_node_degree_dicts
+        
+        if write_results_to_file:
+            if not eval_out_dir:
+                eval_out_dir = DEFAULT_RELATIVE_EVAL_DIR 
+            
+            timestr = time.strftime("%Y%m%d-%H%M%S")
+            eval_out_dir = Path(eval_out_dir).joinpath(f"{model_id}/{timestr}")
+            eval_out_dir.mkdir(exist_ok=True, parents=True)
+            
+            for eval_triple_endpoint_key, endpoint_results_dict in results_by_node_degree_dicts.items():
+                eval_out_file = eval_out_dir.joinpath(f"{eval_triple_endpoint_key}-node-degree-eval.json")
+                eval_metadata = eval_out_dir.joinpath(f"{eval_triple_endpoint_key}-metadata.json")
+
+                with open(eval_out_file, "w+") as f:
+                    print(f"Writing results to {str(eval_out_file)}")
+                    json.dump(endpoint_results_dict, f)
+
+                print(f"Writing results to {str(eval_out_file)}")
+                with open(eval_metadata_file, "w+") as f:
+                    metadata_dict={
+                        "model_id": model_id,
+                        "entity_type_to_predict": entity_type_to_predict,
+                        "eval_triple_endpoint_key": eval_triple_endpoint_key,
+                        "eval_metric_type": eval_metric_type
+                    }
+                    json.dump(metadata_dict, f)
+            
+        return results_by_node_degree_dicts
+
+    
+    def write_to_file(self, write_results_to_file=True, eval_out_dir=None, results_by_node_degree_dicts=None,
+                     entity_type_to_predict=DRUG, node_endpoint_to_predict=COL_SOURCE):
+                
+        if write_results_to_file:
+            if not eval_out_dir:
+                eval_out_dir = DEFAULT_RELATIVE_EVAL_DIR 
+            
+            timestr = time.strftime("%Y%m%d-%H%M%S")
+            eval_out_dir = Path(eval_out_dir).joinpath(f"{model_id}/{timestr}")
+            eval_out_dir.mkdir(exist_ok=True, parents=True)
+            
+            eval_out_file = eval_out_dir.joinpath("node-degree-eval.json")
+            eval_metadata_file = eval_out_dir.joinpath("metadata.json")
+
+            print(f"Writing results to {str(eval_out_file)}")
+            with open(eval_out_file, "w+") as f:
+                json.dump(results_by_node_degree_dicts, f)
+            
+            with open(eval_metadata_file, "w+") as f:
+                metadata_dict={
+                    "model_id": model_id,
+                    "entity_type_to_predict": entity_type_to_predict,
+                    "node_endpoint_to_predict": node_endpoint_to_predict,
+                    "eval_metric_type": eval_metric_type
+                }
+                json.dump(metadata_dict, f)
+    def format_eval_results(self, eval_results, eval_triple_endpoint=EVAL_NODE_HEAD, eval_metric_type=EVAL_METRIC_REALISTIC):
+        results_by_node_degree_dicts = {}
+        for result in eval_results:
+                 results_by_node_degree_dicts[result['ent_degree']] = make_results_dict_all_rel(result['results'],
+                                                                                        relation=result['relation'],
+                                                                                        relation_count=result['count'],
+                                                                                        triple_endpoint=eval_triple_endpoint,
+                                                                                        metric_type=eval_metric_type
+                                                                                       )
+        return results_by_node_degree_dicts
+        
+    
+    def _create_test_df_subset_given_node_endpoint_type_to_predict(self, 
+                                                                   test_df,
+                                                                   entity_type_to_predict,
+                                                                   node_endpoint_to_predict):
+        test_subset_df = test_df.loc[test_df[COL_EDGE].isin(self.rels_assoc_by_node_endpoint_type_dict.get(entity_type_to_predict).get(node_endpoint_to_predict))]
+        return test_subset_df
+    
+
+
+@dataclass
+class EvalReport:
+    results_dict: dict = None
+
+        
+
+
+def compute_metrics_over_triples_with_ent_node_endpoint(model_id, 
+                                                        test_triples_w_node_degree_df, 
+                                                        test_set_slug,
+                                                        node_endpoint_type,                                                           
+                                                        train_triples,
+                                                        valid_triples,
+                                                        entity_type_to_predict,
+                                                        rels_assoc_by_node_endpoint_type_dict,
+                                                        model_registry_cfg: ModelRegistryConfig,
+):
+    col_node_degree = f"{node_endpoint_type}_training_degree" # if predicting head, this should be the 'src_training_degree'
+    evaluator = RankBasedEvaluator(filtered=True)
+    model_base_path = model_registry_cfg.registered_model_paths.get(model_id)
+    model = load_kge_model(model_base_path=model_base_path)
+    print(f'loaded model from {str(model_base_path)}')
+    additional_filter_triples = obtain_filtered_triples(test_type=test_set_slug,
+                                                        train_triples=train_triples,
+                                                        valid_triples=valid_triples
+                                                       )
+    
+    test_triples_with_ent_node_endpoint_df = test_triples_w_node_degree_df.loc[test_triples_w_node_degree_df[COL_EDGE].isin(
+        rels_assoc_by_node_endpoint_type_dict.get(entity_type_to_predict)[node_endpoint_type])]
+    ent_degree_values = test_triples_with_ent_node_endpoint_df[col_node_degree].unique()
+    result_dicts = []
+    
+    for degree_val in tqdm(ent_degree_values): 
+        df_subset = test_triples_with_ent_node_endpoint_df.loc[test_triples_with_ent_node_endpoint_df[col_node_degree]==degree_val][[COL_SOURCE, COL_EDGE, COL_TARGET]]
+        triples_subset = df_subset.values
+        triples_subset = TriplesFactory.from_labeled_triples(triples_subset, 
+                                                             relation_to_id=train_triples.relation_to_id, 
+                                                             entity_to_id=train_triples.entity_to_id)
+        if triples_subset.num_triples > 0:
+            subset_result = evaluator.evaluate(model,
+                                               triples_subset.mapped_triples, 
+                                               additional_filter_triples=additional_filter_triples,
+                                               use_tqdm=False)
+            result_dicts.append({'ent_degree': degree_val, 'results': subset_result, 'relation': 'All', 'count': triples_subset.num_triples})
+    return result_dicts
 
