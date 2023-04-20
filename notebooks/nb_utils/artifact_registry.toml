@@ -38,7 +38,7 @@ drug = "biokg_molecule_embeddings_idx_mapping.json"
 
 [kge_models.registered_models]  # model directory path relative to model_registry_root_dir
 rotate-otxtubeb = "rotate-otxtubeb"
+bioblpd-38uz9fjs-16-03-2023 = "bioblpd-38uz9fjs-16-03-2023" 
 bioblpd-38uz9fjs = "bioblpd-38uz9fjs" 
 bioblpp-cttc3ucm = "bioblpp-cttc3ucm"
 bioblpm-5rxz3k57 = "bioblpm-5rxz3k57"
-

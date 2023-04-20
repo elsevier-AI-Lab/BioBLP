@@ -1,6 +1,7 @@
 from abc import ABC
 from enum import Enum
 import matplotlib.pyplot as plt
+from collections import defaultdict
 from .config import GraphRegistryConfig
 from .config import ModelRegistryConfig
 import json
@@ -19,18 +20,6 @@ from dataclasses import dataclass
 
 
 ###### Define CONSTANTS ######
-TEST = "test"
-VALID = "valid"
-TRAIN = "train"
-DUMMY = "dummy"
-TEST_RESTRICTED_DIS = "TEST_RESTRICTED_DIS"
-TEST_EXCLUDING_DIS = "TEST_EXCLUDING_DIS"
-VALID_RESTRICTED_DIS = "VALID_RESTRICTED_DIS"
-TEST_RESTRICTED_PROT = "TEST_RESTRICTED_PROT"
-TEST_EXCLUDING_PROT = "TEST_EXCLUDING_PROT"
-TEST_RESTRICTED_ENT = "TEST_RESTRICTED_ENT"
-TEST_EXCLUDING_ENT = "TEST_EXCLUDING_ENT"
-
 COL_SOURCE = "src"
 COL_TARGET = "tgt"
 COL_EDGE = "rel"
@@ -44,11 +33,39 @@ DISEASE = 'disease'
 DRUG = 'drug'
 PROTEIN = 'protein'
 
+
+TEST = "test"
+VALID = "valid"
+TRAIN = "train"
+DUMMY = "dummy"
+TEST_RESTRICTED_DISEASE = "TEST_RESTRICTED_DISEASE"
+TEST_EXCLUDING_DISEASE = "TEST_EXCLUDING_DISEASE"
+VALID_RESTRICTED_DISEASE = "VALID_RESTRICTED_DISEASE"
+TEST_RESTRICTED_PROTEIN = "TEST_RESTRICTED_PROTEIN"
+TEST_EXCLUDING_PROTEIN = "TEST_EXCLUDING_PROTEIN"
+TEST_RESTRICTED_DRUG = "TEST_RESTRICTED_DRUG"
+TEST_EXCLUDING_DRUG = "TEST_EXCLUDING_DRUG"
+TEST_RESTRICTED_ENT = "TEST_RESTRICTED_ENT"
+TEST_EXCLUDING_ENT = "TEST_EXCLUDING_ENT"
+
+ENT_SPECIFIC_TEST_SET_STUBS = {
+    DISEASE: TEST_RESTRICTED_DISEASE,
+    PROTEIN: TEST_RESTRICTED_PROTEIN,
+    DRUG: TEST_RESTRICTED_DRUG    
+}
+
 ##### Relations #####
 
+COMPLEX_IN_PATHWAY = 'COMPLEX_IN_PATHWAY'
+COMPLEX_TOP_LEVEL_PATHWAY = 'COMPLEX_TOP_LEVEL_PATHWAY'
+DDI = 'DDI'
+DISEASE_GENETIC_DISORDER = "DISEASE_GENETIC_DISORDER"
+DISEASE_PATHWAY_ASSOCIATION = "DISEASE_PATHWAY_ASSOCIATION"
 DPI = "DPI"
 DRUG_CARRIER = "DRUG_CARRIER"
+DRUG_DISEASE_ASSOCIATION = 'DRUG_DISEASE_ASSOCIATION'
 DRUG_ENZYME = 'DRUG_ENZYME'
+DRUG_PATHWAY_ASSOCIATION = 'DRUG_PATHWAY_ASSOCIATION'
 DRUG_TARGET = 'DRUG_TARGET'
 DRUG_TRANSPORTER = 'DRUG_TRANSPORTER'
 MEMBER_OF_COMPLEX = 'MEMBER_OF_COMPLEX'
@@ -56,10 +73,7 @@ PPI = 'PPI'
 PROTEIN_DISEASE_ASSOCIATION = 'PROTEIN_DISEASE_ASSOCIATION'
 PROTEIN_PATHWAY_ASSOCIATION = 'PROTEIN_PATHWAY_ASSOCIATION'
 RELATED_GENETIC_DISORDER = 'RELATED_GENETIC_DISORDER'
-DDI = 'DDI'
-DRUG_DISEASE_ASSOCIATION = 'DRUG_DISEASE_ASSOCIATION'
-DRUG_PATHWAY_ASSOCIATION = 'DRUG_PATHWAY_ASSOCIATION'
-DRUG_TRANSPORTER = 'DRUG_TRANSPORTER'
+
 
 PROT_ASSOC_REL_NAMES = [DPI, DRUG_CARRIER, DRUG_ENZYME, 
                         DRUG_TARGET, DRUG_TRANSPORTER, MEMBER_OF_COMPLEX, 
@@ -70,14 +84,20 @@ DRUG_ASSOC_REL_NAMES = [DDI, DPI, DRUG_CARRIER, DRUG_DISEASE_ASSOCIATION,
                         DRUG_ENZYME, DRUG_PATHWAY_ASSOCIATION, DRUG_TARGET, 
                         DRUG_TRANSPORTER]
 
-DISEASE_ASSOC_REL_NAMES = []  
+DISEASE_ASSOC_REL_NAMES = [PROTEIN_DISEASE_ASSOCIATION,
+                           DRUG_DISEASE_ASSOCIATION,
+                           DISEASE_PATHWAY_ASSOCIATION,
+                           DISEASE_GENETIC_DISORDER]
+
 DEFAULT_RELATIVE_EVAL_DIR = "./metrics/"
 
 
 # todo infer this programmatically, but it might require iterating through all entities
 ENT_ASSOC_REL_NAMES = {
-    DISEASE: {COL_SOURCE: [],
-              COL_TARGET: []
+    DISEASE: {COL_SOURCE: [PROTEIN_DISEASE_ASSOCIATION,
+                           DRUG_DISEASE_ASSOCIATION],
+              COL_TARGET: [DISEASE_PATHWAY_ASSOCIATION,
+                           DISEASE_GENETIC_DISORDER]
              },
     PROTEIN: {COL_SOURCE: [MEMBER_OF_COMPLEX, 
                            PPI,
@@ -341,14 +361,18 @@ def create_entity_attr_aware_test_sets(entity_type_w_attribute: str,
     entity_metadata_path = graph_cfg.biokgb_entity_type_metadata_paths.get(entity_type_w_attribute)
     entity_attribute_path = graph_cfg.biokgb_entity_attribute_paths.get(entity_type_w_attribute)
     
-    # create a subset of biokg entities of type Protein 
-    entities = pd.read_csv(entity_metadata_path, sep="\t", names=[entity_type_w_attribute, "rel", "node_type"])
+    # create a subset of biokg entities of type {entity_type_w_attribute} 
+    entities = pd.read_csv(entity_metadata_path, sep="\t", names=[entity_type_w_attribute, COL_EDGE, "node_type"])
     entity_set = set(entities[entity_type_w_attribute].values)
     print(f"# {entity_type_w_attribute} entities in larger biokg (pre-benchmark removal): {len(entity_set)}")
 
-    # create a set of protein entities for which we have text descriptions
-    entity_w_attr_df = pd.read_json(entity_attribute_path, orient="index").reset_index()#, sep="\t", header=0, names=["protein", "attr"])
-    entity_w_attr_df.rename(columns={"index": entity_type_w_attribute, 0: "attr"}, inplace=True)
+    # create a set of {entity_type_w_attribute} entities for which we have attr descriptions (e.g.: text for Diseases)
+    # TODO: Currently a quick hack. Standardise input reading
+    try:
+        entity_w_attr_df = pd.read_json(entity_attribute_path, orient="index").reset_index()
+        entity_w_attr_df.rename(columns={"index": entity_type_w_attribute, 0: "attr"}, inplace=True)
+    except:
+        entity_w_attr_df = pd.read_csv(entity_attribute_path, sep="\t", header=0, names=[entity_type_w_attribute, "attr"])
     entity_attr_set = set(entity_w_attr_df[entity_type_w_attribute].values)
     print(f"# {entity_type_w_attribute} entities for which we have attributes: {len(entity_attr_set)}")
     
@@ -452,7 +476,6 @@ class NodeDegreeEvalAnalyser(ABC):
         self.node_train_degree_dict = None
         self._compute_train_node_degree(train_triples=train_triples)
         self.rels_assoc_by_node_endpoint_type_dict = rels_assoc_by_node_endpoint_type_dict
-        self.report = EvalReport()
 
     def _compute_train_node_degree(self, train_triples):
         training_df = pd.DataFrame(train_triples.triples, columns=[COL_SOURCE, COL_EDGE, COL_TARGET])
@@ -477,6 +500,7 @@ class NodeDegreeEvalAnalyser(ABC):
                  model_registry_cfg=None,
                  test_set_slug=TEST):
         # self.node_endpoint_to_predict = node_endpoint_to_predict
+        print(f"Evaluating LP metrics on triples which have {entity_type_to_predict} in {node_endpoint_to_predict} position, using kge from model {model_id}")
         test_triples_with_degree_df = self.prep_test_data(test_triples)
         test_triples_with_degree_subset_df = self._create_test_df_subset_given_node_endpoint_type_to_predict(test_df = test_triples_with_degree_df, 
                                                                                                              entity_type_to_predict=entity_type_to_predict,
@@ -498,19 +522,20 @@ class NodeDegreeEvalAnalyser(ABC):
 
                 
                 
-    def format_eval_results(self, eval_results, eval_triple_endpoint_list=[EVAL_NODE_HEAD], eval_metric_type=EVAL_METRIC_REALISTIC):
-        results_by_node_degree_dicts = {}
-        for eval_triple_endpoint in eval_triple_endpoint:
+    def format_eval_results(self, eval_results, eval_triple_endpoint_list=[EVAL_NODE_HEAD, EVAL_NODE_TAIL, EVAL_NODE_BOTH], eval_metric_type=EVAL_METRIC_REALISTIC):
+        results_by_node_degree_dicts = defaultdict(dict)
+        for eval_triple_endpoint in eval_triple_endpoint_list:
             
             for result in eval_results:
-                     results_by_node_degree_dicts[result['ent_degree']] = make_results_dict_all_rel(result['results'],
+                     results_by_node_degree_dicts[eval_triple_endpoint][result['ent_degree']] = make_results_dict_all_rel(result['results'],
                                                                                             relation=result['relation'],
                                                                                             relation_count=result['count'],
                                                                                             triple_endpoint=eval_triple_endpoint,
                                                                                             metric_type=eval_metric_type
                                                                                            )
         return results_by_node_degree_dicts
-        
+
+  
     def evaluate_and_format(self,
                  entity_type_to_predict,
                  node_endpoint_to_predict, 
@@ -520,18 +545,19 @@ class NodeDegreeEvalAnalyser(ABC):
                  valid_triples,
                  model_registry_cfg=None,
                  test_set_slug=TEST,
-                 eval_triple_endpoint_list=[EVAL_NODE_HEAD, EVAL_NODE_TAIL],
+                 eval_triple_endpoint_list=[EVAL_NODE_HEAD, EVAL_NODE_TAIL, EVAL_NODE_BOTH],
                  eval_metric_type=EVAL_METRIC_REALISTIC,
                  eval_out_dir=None,
                  write_results_to_file=True
 ):
-        results_by_node_degree = self.evaluate(entity_type_to_predict,
-                                               node_endpoint_to_predict, 
-                                               test_triples, 
-                                               model_id,
-                                               train_triples, 
-                                               valid_triples,
-                                               model_registry_cfg=None,
+
+        results_by_node_degree = self.evaluate(entity_type_to_predict=entity_type_to_predict,
+                                               node_endpoint_to_predict=node_endpoint_to_predict, 
+                                               test_triples=test_triples, 
+                                               model_id=model_id,
+                                               train_triples=train_triples, 
+                                               valid_triples=valid_triples,
+                                               model_registry_cfg=model_registry_cfg,
                                                test_set_slug=TEST)
         
         results_by_node_degree_dicts = self.format_eval_results(results_by_node_degree, 
@@ -547,27 +573,27 @@ class NodeDegreeEvalAnalyser(ABC):
             eval_out_dir = Path(eval_out_dir).joinpath(f"{model_id}/{timestr}")
             eval_out_dir.mkdir(exist_ok=True, parents=True)
             
-            for eval_triple_endpoint_key, endpoint_results_dict in results_by_node_degree_dicts.items():
-                eval_out_file = eval_out_dir.joinpath(f"{eval_triple_endpoint_key}-node-degree-eval.json")
-                eval_metadata = eval_out_dir.joinpath(f"{eval_triple_endpoint_key}-metadata.json")
+            eval_out_file = eval_out_dir.joinpath(f"node-degree-eval.json")
+            eval_metadata_file = eval_out_dir.joinpath(f"metadata.json")
 
-                with open(eval_out_file, "w+") as f:
-                    print(f"Writing results to {str(eval_out_file)}")
-                    json.dump(endpoint_results_dict, f)
-
+            with open(eval_out_file, "w+") as f:
                 print(f"Writing results to {str(eval_out_file)}")
-                with open(eval_metadata_file, "w+") as f:
-                    metadata_dict={
-                        "model_id": model_id,
-                        "entity_type_to_predict": entity_type_to_predict,
-                        "eval_triple_endpoint_key": eval_triple_endpoint_key,
-                        "eval_metric_type": eval_metric_type
-                    }
-                    json.dump(metadata_dict, f)
-            
+                json.dump(results_by_node_degree_dicts, f)
+
+            print(f"Writing results to {str(eval_metadata_file)}")
+            with open(eval_metadata_file, "w+") as f:
+                metadata_dict={
+                    "model_id": model_id,
+                    "entity_type_to_predict": entity_type_to_predict,
+                    "entity_occuring_in_head_or_tail_position": node_endpoint_to_predict,
+                    "eval_metric_type": eval_metric_type
+                }
+                json.dump(metadata_dict, f)
+
         return results_by_node_degree_dicts
 
-    
+        
+
     def write_to_file(self, write_results_to_file=True, eval_out_dir=None, results_by_node_degree_dicts=None,
                      entity_type_to_predict=DRUG, node_endpoint_to_predict=COL_SOURCE):
                 
@@ -594,18 +620,8 @@ class NodeDegreeEvalAnalyser(ABC):
                     "eval_metric_type": eval_metric_type
                 }
                 json.dump(metadata_dict, f)
-    def format_eval_results(self, eval_results, eval_triple_endpoint=EVAL_NODE_HEAD, eval_metric_type=EVAL_METRIC_REALISTIC):
-        results_by_node_degree_dicts = {}
-        for result in eval_results:
-                 results_by_node_degree_dicts[result['ent_degree']] = make_results_dict_all_rel(result['results'],
-                                                                                        relation=result['relation'],
-                                                                                        relation_count=result['count'],
-                                                                                        triple_endpoint=eval_triple_endpoint,
-                                                                                        metric_type=eval_metric_type
-                                                                                       )
-        return results_by_node_degree_dicts
-        
-    
+                
+     
     def _create_test_df_subset_given_node_endpoint_type_to_predict(self, 
                                                                    test_df,
                                                                    entity_type_to_predict,
@@ -613,13 +629,6 @@ class NodeDegreeEvalAnalyser(ABC):
         test_subset_df = test_df.loc[test_df[COL_EDGE].isin(self.rels_assoc_by_node_endpoint_type_dict.get(entity_type_to_predict).get(node_endpoint_to_predict))]
         return test_subset_df
     
-
-
-@dataclass
-class EvalReport:
-    results_dict: dict = None
-
-        
 
 
 def compute_metrics_over_triples_with_ent_node_endpoint(model_id, 

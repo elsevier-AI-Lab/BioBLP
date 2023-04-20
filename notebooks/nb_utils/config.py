@@ -11,7 +11,7 @@ from pykeen.triples import TriplesFactory
 
 
 DISEASE = 'disease'
-MOLECULE = 'molecule'
+DRUG = 'drug'
 PROTEIN = 'protein'
 
 
@@ -20,7 +20,7 @@ ARTIFACT_REGISTRY_TOML_PATH = "/home/jovyan/BioBLP/notebooks/nb_utils/artifact_r
 
 class EntityType(str, Enum):
     disease = DISEASE
-    molecule = MOLECULE
+    drug = DRUG
     protein = PROTEIN
 
 
