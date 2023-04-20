@@ -29,16 +29,11 @@ drug = "biokg_molecule_embeddings_idx_mapping.json"
 # drug = "biokg_molecule_embeddings.pt"
 
 # model registry
-[kge_models]
-
-#[kge_models.model_types]
-#rotate = "rotate"
-#bioblp_d = "bioblp_d"
-#bioblp_p = "bioblp_p"
-
 [kge_models.registered_models]  # model directory path relative to model_registry_root_dir
 rotate-otxtubeb = "rotate-otxtubeb"
 bioblpd-38uz9fjs-16-03-2023 = "bioblpd-38uz9fjs-16-03-2023" 
 bioblpd-38uz9fjs = "bioblpd-38uz9fjs" 
 bioblpp-cttc3ucm = "bioblpp-cttc3ucm"
 bioblpm-5rxz3k57 = "bioblpm-5rxz3k57"
+rotate-bioblp-m-1r75g9na = "rotate-bioblp-m-1r75g9na" 
+rotate-bioblp-p-4o6x9h96 = "rotate-bioblp-p-4o6x9h96"
