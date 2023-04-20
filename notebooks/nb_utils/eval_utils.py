@@ -120,7 +120,6 @@ ENT_ASSOC_REL_NAMES = {
 }
               
     
-
 def test_rel_list_validity(rel_list, train_triples):
     '''
     e.g.: test_rel_list_validity(ENT_ASSOC_REL_NAMES[PROTEIN][COL_TARGET], train_triples)
@@ -145,7 +144,6 @@ EVAL_METRIC_PESSIMISTIC = "pessimistic"
 EVAL_METRIC_RANKING_TYPES = {ranking_type: ranking_type for ranking_type in 
                              [EVAL_METRIC_OPTIMISTIC,EVAL_METRIC_PESSIMISTIC, EVAL_METRIC_REALISTIC]
                             }
-
 HITS_AT_1 = "hits_at_1"
 HITS_AT_3 = "hits_at_3"
 HITS_AT_5 = "hits_at_5"
