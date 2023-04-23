@@ -197,7 +197,9 @@ def model_hpo(fold_i: str,
 
     # construct model from best params
     best_params_i = trial_with_highest_AUCPR.params
-    model = objective.model_init(**best_params_i)
+    model_default_params = objective.get_default_params()
+    model_default_params.update(best_params_i)
+    model = objective.model_init(**model_default_params)
 
     # get params and store
     model_params = objective._get_params_for(model)
@@ -259,9 +261,11 @@ def model_hpo(fold_i: str,
         labels = ["0", "1"]
         y_true = y_t[test_idx]
         y_probas = model.predict_proba(X_t[test_idx, :])
+        y_pred = model.predict(X_t[test_idx, :])
 
         wandb.sklearn.plot_precision_recall(y_true, y_probas, labels)
         wandb.sklearn.plot_roc(y_true, y_probas, labels)
+        wandb.sklearn.plot_confusion_matrix(y_true, y_pred, labels)
 
         wandb.finish()
 

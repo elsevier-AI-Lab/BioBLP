@@ -15,6 +15,7 @@ from sklearn.metrics import accuracy_score
 from sklearn.metrics import precision_recall_curve
 from sklearn.metrics import roc_curve
 from sklearn.metrics import auc
+from sklearn.metrics import confusion_matrix
 
 
 from sklearn.model_selection import train_test_split
@@ -53,7 +54,8 @@ def aupr_score(y_true, y_pred):
 def get_auc_scorers():
     scorers = {
         "PRCURVE": make_scorer(precision_recall_curve, needs_proba=True),
-        "ROCCURVE": make_scorer(roc_curve, needs_proba=True)
+        "ROCCURVE": make_scorer(roc_curve, needs_proba=True),
+        "CM": make_scorer(confusion_matrix, needs_proba=False)
     }
     return scorers
 

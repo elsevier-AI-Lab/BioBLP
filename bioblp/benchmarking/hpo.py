@@ -173,11 +173,11 @@ class LRObjective(TrainObjective):
         default_params = {
             "C": 1.0,
             "random_state": SEED,
-            "max_iter": 1000,
+            "max_iter": 100,
             "solver": "lbfgs",
             "n_jobs": -1,
             "verbose": 1,
-            "class_weight": "balanced"
+            "class_weight": None
         }
         return default_params
 
@@ -190,8 +190,8 @@ class LRObjective(TrainObjective):
     def _clf_objective(self, trial):
 
         C = trial.suggest_float("C", 1e-5, 1e3, log=True)
-        solver = trial.suggest_categorical("solver", ["lbfgs"])
-        max_iter = trial.suggest_categorical("max_iter", [1000])
+        solver = trial.suggest_categorical("solver", ["lbfgs", "sag"])
+        max_iter = trial.suggest_categorical("max_iter", [100])
 
         params = self.get_default_params()
 
@@ -294,7 +294,7 @@ class MLPObjective(TrainObjective):
         self.epochs = epochs
 
     def get_default_params(self):
-        pass
+        return {}
 
     def _get_params_for(self, model):
         params = {}
@@ -385,7 +385,7 @@ class MLPObjective(TrainObjective):
 
     def _clf_objective(self, trial):
 
-        #lr = trial.suggest_float("optimizer__lr", 1e-5, 1e-1, log=True)
+        # lr = trial.suggest_float("optimizer__lr", 1e-5, 1e-1, log=True)
         dropout = trial.suggest_float("module__dropout", 0.1, 0.5, step=0.05)
 
 #         clf_obj = self.model_init(optimizer__lr=lr, module__dropout=dropout)
