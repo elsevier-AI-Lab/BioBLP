@@ -1,0 +1,98 @@
+
+data_root = "/home/jovyan/workbench-shared-folder/bioblp/"
+experiment_root = "data/benchmarks/experiments/DPI/"
+
+[sampling]
+outdir = "sampled"
+num_negs_per_pos = 1
+kg_triples_dir = "data/benchmarks/experiments/encoders/rotate/training_triples/"
+
+[features]
+outdir = "features"
+transform = "concat"
+missing_values = "mean"
+encoders = ["noise", "structural", "complex", "rotate", "transe", "bioblpd", "bioblpm", "bioblpp" ]
+
+[features.encoder_args.noise]
+random_seed = 24
+
+[features.encoder_args.structural]
+proteins = "data/benchmarks/experiments/encoders/proteins"
+molecules = "data/benchmarks/experiments/encoders/molecules"
+
+[features.encoder_args.complex]
+model_dir = "data/benchmarks/experiments/encoders/complex/"
+
+[features.encoder_args.rotate]
+model_dir = "data/benchmarks/experiments/encoders/rotate/"
+
+[features.encoder_args.transe]
+model_dir = "data/benchmarks/experiments/encoders/transe/"
+
+[features.encoder_args.bioblpd]
+model_dir = "data/benchmarks/experiments/encoders/bioblpd/"
+
+[features.encoder_args.bioblpm]
+model_dir = "data/benchmarks/experiments/encoders/bioblpm/"
+
+[features.encoder_args.bioblpp]
+model_dir = "data/benchmarks/experiments/encoders/bioblpp/"
+
+
+[split]
+n_splits = 5
+outdir = "splits"
+
+
+[models]
+
+[models.noise_lr]
+feature = "noise"
+model = "LR"
+
+[models.noise_rf]
+feature = "noise"
+model = "RF"
+
+
+[models.structural_lr]
+feature = "structural"
+model = "LR"
+
+[models.structural_rf]
+feature = "structural"
+model = "RF"
+
+
+[models.transe_lr]
+feature = "transe"
+model = "LR"
+
+[models.transe_rf]
+feature = "transe"
+model = "RF"
+
+
+[models.complex_lr]
+feature = "complex"
+model = "LR"
+
+[models.complex_rf]
+feature = "complex"
+model = "RF"
+
+
+[models.rotate_lr]
+feature = "rotate"
+model = "LR"
+
+[models.rotate_rf]
+feature = "rotate"
+model = "RF"
+
+
+[train]
+n_iter = 10
+splits_file = "cv-splits.pt"
+refit_params = ["AUCPR", "AUCROC"]
+outdir = "models"

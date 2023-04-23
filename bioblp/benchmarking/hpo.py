@@ -11,7 +11,7 @@ import wandb
 
 from torch import nn
 from torch import Tensor
-from torch.optim.lr_scheduler import ReduceLROnPlateau
+from torch.optim.lr_scheduler import ReduceLROnPlateau, ExponentialLR
 
 from argparse import ArgumentParser
 from dataclasses import asdict
@@ -114,11 +114,11 @@ class TrainObjective(OptunaTrainObjective):
         trial.set_user_attr('metrics', result)
         trial.set_user_attr('run_id', self.run_id)
         trial.set_user_attr('model_params', self._get_params_for(self._model))
-        
+
         score_to_optimize = [
             result.get("valid_{}".format(param_x)) for param_x in self.refit_params
         ]
-        
+
         if self._callback is not None:
             self._callback.set_data(self._model)
 
@@ -276,6 +276,7 @@ class MLP(nn.Module):
             nn.Linear(hidden_dims[0], hidden_dims[1]),
             nn.ReLU(inplace=True),
         ]
+
         # Output
         layers += [
             nn.Linear(hidden_dims[1], output_dims)
@@ -309,7 +310,7 @@ class MLPObjective(TrainObjective):
         recall_scorer = get_scorers().get("recall")
         precision_scorer = get_scorers().get("precision")
         f1_scorer = get_scorers().get("f1")
-        
+
         aucpr_scorer_callback = EpochScoring(
             aucpr_scorer, lower_is_better=False, on_train=False, name="valid_AUCPR")
         aucroc_scorer_callback = EpochScoring(
@@ -320,18 +321,41 @@ class MLPObjective(TrainObjective):
             precision_scorer, lower_is_better=False, on_train=False, name="valid_precision")
         f1_scorer_callback = EpochScoring(
             f1_scorer, lower_is_better=False, on_train=False, name="valid_f1")
-        
-        scorers = [aucpr_scorer_callback, aucroc_scorer_callback, precision_scorer_callback, f1_scorer_callback, recall_scorer_callback]
+
+        scorers = [
+            aucpr_scorer_callback,
+            aucroc_scorer_callback,
+            precision_scorer_callback,
+            f1_scorer_callback,
+            recall_scorer_callback
+        ]
 
 #         optimizer = torch.optim.Adagrad()
-        lr_scheduler = LRScheduler(policy=ReduceLROnPlateau,
+        # lr_scheduler = LRScheduler(policy=ReduceLROnPlateau,
+        #                            monitor='valid_loss',
+        #                            mode='min',
+        #                            threshold=0.0001,
+        #                            threshold_mode="rel",
+        #                            patience=9,
+        #                            factor=0.5,
+        #                            min_lr=1e-5,
+        #                            verbose=True)
+
+        # current best
+        # lr_scheduler = LRScheduler(policy=ReduceLROnPlateau,
+        #                            monitor='valid_loss',
+        #                            mode='min',
+        #                            threshold=0.0001,
+        #                            threshold_mode="rel",
+        #                            patience=9,
+        #                            factor=0.5,
+        #                            min_lr=1e-5,
+        #                            verbose=True)
+
+        lr_scheduler = LRScheduler(policy=ExponentialLR,
                                    monitor='valid_loss',
-                                   mode='min',
-                                   threshold=0.0001,
-                                   threshold_mode="rel",
-                                   patience=4,
-                                   factor=0.5,
-                                   min_lr=1e-5,
+                                   #    mode='min',
+                                   gamma=0.9,
                                    verbose=True)
 
         early_stopping = EarlyStopping(monitor="valid_AUCPR",
@@ -339,7 +363,7 @@ class MLPObjective(TrainObjective):
                                        threshold=0.001,
                                        threshold_mode="rel",
                                        lower_is_better=False)
-        
+
         nn_callbacks = scorers + [early_stopping, lr_scheduler]
 
         net = NeuralNetClassifier(
@@ -349,7 +373,7 @@ class MLPObjective(TrainObjective):
             max_epochs=self.epochs,
             criterion=nn.BCEWithLogitsLoss,
             optimizer=torch.optim.Adagrad,
-            optimizer__lr=0.01,
+            optimizer__lr=0.001,
             batch_size=64,
             # train_split=0.8,
             callbacks=nn_callbacks,

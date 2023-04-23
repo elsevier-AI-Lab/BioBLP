@@ -134,7 +134,7 @@ def model_hpo(fold_i: str,
     if wandb_tag is not None:
         tags.append(wandb_tag)
 
-    wandb_kwargs = {"project": "bioblp-dpi-tvt",
+    wandb_kwargs = {"project": "bioblp-dpi-s",
                     "entity": "discoverylab",
                     "tags": tags,
                     "config": {
@@ -144,7 +144,8 @@ def model_hpo(fold_i: str,
                         "study_prefix": study_prefix,
                         "fold_idx": fold_i,
                         "timestamp": timestamp
-                    }
+                    },
+                    "settings": wandb.Settings(start_method="fork")
                     }
 
     file_tracker_callback = ConsoleResultTracker()
