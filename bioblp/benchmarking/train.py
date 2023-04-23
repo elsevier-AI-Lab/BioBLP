@@ -134,7 +134,7 @@ def model_hpo(fold_i: str,
     if wandb_tag is not None:
         tags.append(wandb_tag)
 
-    wandb_kwargs = {"project": "bioblp-dpi-s",
+    wandb_kwargs = {"project": "bioblp-dpi-tvt",
                     "entity": "discoverylab",
                     "tags": tags,
                     "config": {
