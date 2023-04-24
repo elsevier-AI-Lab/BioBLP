@@ -273,6 +273,9 @@ def evaluate_lp_all_rels_on_single_test_set(model,
                                            ):
             
     evaluator = RankBasedEvaluator(filtered=True)   
+    #if evaluator.batch_size<32:
+    #   evaluator.batch_size=32 
+    print(f"eval batch size: {evaluator.batch_size}")
     # should we filtering more triples in the disease restricted test sets?
     filtered_triples = obtain_filtered_triples(test_type=eval_test_set_slug, 
                                                train_triples=train_triples,
@@ -641,6 +644,11 @@ def compute_metrics_over_triples_with_ent_node_endpoint(model_id,
 ):
     col_node_degree = f"{node_endpoint_type}_training_degree" # if predicting head, this should be the 'src_training_degree'
     evaluator = RankBasedEvaluator(filtered=True)
+       #if evaluator.batch_size<32:
+       #evaluator.batch_size=32 
+    print(f"eval batch size: {evaluator.batch_size}")
+    
+    
     model_base_path = model_registry_cfg.registered_model_paths.get(model_id)
     model = load_kge_model(model_base_path=model_base_path)
     print(f'loaded model from {str(model_base_path)}')
