@@ -4,7 +4,7 @@ experiment_root = "data/benchmarks/experiments/DPI/"
 
 [sampling]
 outdir = "sampled"
-num_negs_per_pos = 1
+num_negs_per_pos = 10
 kg_triples_dir = "data/benchmarks/experiments/encoders/rotate/training_triples/"
 
 [features]
@@ -46,16 +46,21 @@ outdir = "splits"
 
 [models]
 
-[models.rotate_lr]
-feature = "rotate"
-model = "LR"
+[models.bioblpd_mlp]
+feature = "bioblpd"
+model = "MLP"
 
-[models.complex_lr]
-feature = "complex"
-model = "LR"
+[models.bioblpm_mlp]
+feature = "bioblpm"
+model = "MLP"
+
+[models.bioblpp_mlp]
+feature = "bioblpp"
+model = "MLP"
+
 
 [train]
-n_iter = 5
-splits_file = "train-test-split.pt"
+n_iter = 10
+splits_file = "cv-splits.pt"
 refit_params = ["AUCPR", "AUCROC"]
 outdir = "models"

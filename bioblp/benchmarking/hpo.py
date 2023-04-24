@@ -177,7 +177,7 @@ class LRObjective(TrainObjective):
             "solver": "lbfgs",
             "n_jobs": -1,
             "verbose": 1,
-            "class_weight": None
+            "class_weight": "balanced"
         }
         return default_params
 
@@ -355,7 +355,7 @@ class MLPObjective(TrainObjective):
         lr_scheduler = LRScheduler(policy=ExponentialLR,
                                    monitor='valid_loss',
                                    #    mode='min',
-                                   gamma=0.9,
+                                   gamma=0.98,
                                    verbose=True)
 
         early_stopping = EarlyStopping(monitor="valid_AUCPR",
