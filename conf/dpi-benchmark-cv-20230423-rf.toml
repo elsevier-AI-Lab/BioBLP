@@ -46,72 +46,33 @@ outdir = "splits"
 
 [models]
 
-[models.noise_lr]
-feature = "noise"
-model = "LR"
-
 [models.noise_rf]
 feature = "noise"
 model = "RF"
-
-
-[models.structural_lr]
-feature = "structural"
-model = "LR"
 
 [models.structural_rf]
 feature = "structural"
 model = "RF"
 
-
-[models.transe_lr]
-feature = "transe"
-model = "LR"
-
 [models.transe_rf]
 feature = "transe"
 model = "RF"
-
-
-[models.complex_lr]
-feature = "complex"
-model = "LR"
 
 [models.complex_rf]
 feature = "complex"
 model = "RF"
 
-
-[models.rotate_lr]
-feature = "rotate"
-model = "LR"
-
 [models.rotate_rf]
 feature = "rotate"
 model = "RF"
-
-
-[models.bioblpd_lr]
-feature = "bioblpd"
-model = "LR"
 
 [models.bioblpd_rf]
 feature = "bioblpd"
 model = "RF"
 
-
-[models.bioblpm_lr]
-feature = "bioblpm"
-model = "LR"
-
 [models.bioblpm_rf]
 feature = "bioblpm"
 model = "RF"
-
-
-[models.bioblpp_lr]
-feature = "bioblpp"
-model = "LR"
 
 [models.bioblpp_rf]
 feature = "bioblpp"
