@@ -15,7 +15,7 @@ DRUG = 'drug'
 PROTEIN = 'protein'
 
 
-ARTIFACT_REGISTRY_TOML_PATH = "/home/jovyan/BioBLP/notebooks/nb_utils/artifact_registry.toml"
+ARTIFACT_REGISTRY_TOML_PATH = "nb_utils/artifact_registry.toml"
 
 
 class EntityType(str, Enum):

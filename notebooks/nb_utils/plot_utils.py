@@ -7,7 +7,6 @@ from pathlib import Path
 from pykeen.triples import TriplesFactory
 from pykeen.evaluation import RankBasedEvaluator
 import matplotlib.ticker as ticker
-import seaborn as sns
 from tqdm import tqdm
 import wandb
 import time

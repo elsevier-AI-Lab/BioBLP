@@ -10,7 +10,6 @@ import pandas as pd
 from pathlib import Path
 from pykeen.triples import TriplesFactory
 from pykeen.evaluation import RankBasedEvaluator
-import seaborn as sns
 import torch
 from tqdm import tqdm
 import wandb
