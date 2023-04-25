@@ -46,16 +46,13 @@ outdir = "splits"
 
 [models]
 
-[models.rotate_mlp]
-feature = "rotate"
+[models.bioblpp_mlp]
+feature = "bioblpp"
 model = "MLP"
 
-[models.complex_mlp]
-feature = "complex"
-model = "MLP"
 
 [train]
-n_iter = 2
+n_iter = 10
 splits_file = "cv-splits.pt"
 refit_params = ["AUCPR", "AUCROC"]
 outdir = "models"

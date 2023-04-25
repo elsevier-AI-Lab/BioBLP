@@ -6,7 +6,7 @@ import numpy as np
 import random as rn
 import abc
 import joblib
-
+import skorch
 import wandb
 
 from torch import nn
@@ -42,6 +42,7 @@ from skorch import NeuralNetClassifier
 from skorch.callbacks import EarlyStopping
 from skorch.callbacks import EpochScoring
 from skorch.callbacks import LRScheduler
+
 from typing import Union, Tuple, Dict
 
 from bioblp.logger import get_logger
@@ -288,6 +289,50 @@ class MLP(nn.Module):
         return self.layers(X)
 
 
+def get_train_split_undersampled(ds, y) -> Tuple[skorch.dataset.Dataset, skorch.dataset.Dataset]:
+
+    X = torch.vstack([x[0] for x in ds])
+    y = torch.vstack([x[1] for x in ds])
+
+    X_train, X_valid, y_train, y_valid = train_test_split(X, y, stratify=y, 
+                                                          test_size=0.1, random_state=SEED) 
+    raw_counts = torch.unique(y_train, return_counts=True)
+
+    pos_mask = y_train.squeeze(dim=1) > 0
+    pos_mask = pos_mask.nonzero().squeeze(dim=1)
+
+    num_pos = len(pos_mask)
+
+    neg_mask = y_train.squeeze(dim=1) < 1
+    neg_mask = neg_mask.nonzero().squeeze(dim=1)
+
+    permuted_idxs = torch.randperm(num_pos)
+
+    neg_mask_sampled = neg_mask[permuted_idxs]
+
+    pos_samples = X_train[pos_mask, :]
+    pos_labels = y_train[pos_mask]
+
+    neg_samples = X_train[neg_mask_sampled, :]
+    neg_labels = y_train[neg_mask_sampled]
+
+    X_train_sampled = torch.cat((pos_samples, neg_samples), dim=0)
+    y_train_sampled = torch.cat((pos_labels, neg_labels), dim=0)
+
+    shuffled_idx = torch.randperm(len(y_train_sampled))
+    X_train_sampled = X_train_sampled[shuffled_idx, :]
+    y_train_sampled = y_train_sampled[shuffled_idx]
+
+    sampled_counts = torch.unique(y_train_sampled, return_counts=True)
+
+    logger.info(f"Sampled down targets from {raw_counts} to {sampled_counts}.")
+
+    train_ds = skorch.dataset.Dataset(X_train_sampled, y_train_sampled)
+    
+    valid_ds = skorch.dataset.Dataset(X_valid, y_valid)
+    return train_ds, valid_ds
+
+
 class MLPObjective(TrainObjective):
     def __init__(self, epochs, **kwargs):
         super().__init__(**kwargs)
@@ -360,7 +405,7 @@ class MLPObjective(TrainObjective):
 
         early_stopping = EarlyStopping(monitor="valid_AUCPR",
                                        patience=10,
-                                       threshold=0.001,
+                                       threshold=0.01,
                                        threshold_mode="rel",
                                        lower_is_better=False)
 
@@ -375,7 +420,7 @@ class MLPObjective(TrainObjective):
             optimizer=torch.optim.Adagrad,
             optimizer__lr=0.001,
             batch_size=64,
-            # train_split=0.8,
+            train_split=get_train_split_undersampled,
             callbacks=nn_callbacks,
             device=DEVICE,
             ** kwargs,
