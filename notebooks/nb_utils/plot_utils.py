@@ -6,10 +6,12 @@ import pandas as pd
 from pathlib import Path
 from pykeen.triples import TriplesFactory
 from pykeen.evaluation import RankBasedEvaluator
+import matplotlib
 import matplotlib.ticker as ticker
 from tqdm import tqdm
 import wandb
 import time
+import seaborn as sns
 
 
 from .eval_utils import EVAL_NODE_HEAD
@@ -157,26 +159,41 @@ def plot_node_degree_analysis_multimodel_lp_eval_diff(merged_results_df,
                                                       rotate_model_id,
                                                       node_endpoint_type_for_entity_w_attribute=COL_SOURCE,                                                                                                       
                                                       eval_on_node_endpoint=EVAL_NODE_HEAD,
-                                                      metric_name=INVERSE_HARMONIC_MEAN_RANK):
+                                                      metric_name=INVERSE_HARMONIC_MEAN_RANK,
+                                                     plot_title=True):
     
     degrees, metrics, counts, num_unique_ents = merged_results_df['degree'], merged_results_df[metric_name], merged_results_df['count'], merged_results_df['num_unique_ents']
+    sns.set_style("whitegrid")
     plot, ax = plt.subplots(figsize=(10,10))
-    sns.color_palette("flare", as_cmap=True)
     s_square = [n*n for n in num_unique_ents] 
-    plot_ = sns.scatterplot(ax = ax, x=degrees, y=metrics, size=num_unique_ents, sizes=(10,200))
+
+    plot_ = sns.scatterplot(ax = ax, x=degrees, y=metrics, size=num_unique_ents, sizes=(10,250))
     plt.xscale('log')
-    plt.ylabel(metric_name)
-    plt.xlabel(f'Training degree for {entity_type_w_attr_encoded} entity being predicted')
-    #ax.axis([1, 10000, 1, 1000000])
-    #ax.loglog()
-    plt.xticks(degrees, rotation='vertical')
+    plt.ylabel('\u0394 MRR', fontsize=15)
+    plt.xlabel(f'Training degree for entity being predicted', fontsize=14) 
+    
+    # x axis ticks
+    plt.xticks(degrees, rotation='horizontal', fontsize=12)
+    def myLogFormat(y,pos):
+        # Find the number of decimal places required
+        decimalplaces = int(np.maximum(-np.log10(y),0))     # =0 for numbers >=1
+        # Insert that number into a format string
+        formatstring = '{{:.{:1d}f}}'.format(decimalplaces)
+        # Return the formatted tick label
+        return formatstring.format(y)
 
-    plot_.xaxis.set_major_locator(ticker.IndexLocator(100, 0))
+    # plot_.xaxis.set_major_locator(ticker.IndexLocator(100, 0))
+    plot_.xaxis.set_major_locator(ticker.LogLocator())
+    plot_.xaxis.set_major_formatter(ticker.FuncFormatter(myLogFormat))
+    plot_.legend(title='Unique test entities\n at each node degree', loc='upper right', prop={'size': 12}, title_fontsize=12)
+    plt.grid(axis='y', color='0.5')
+    
+    if plot_title:
+        plt.title(f'\u0394 MRR between {rotate_model_id} and {bioblp_model_id} when predicting {entity_type_w_attr_encoded} entity head at different node degree buckets')                              
 
-    plt.title(f'(avg_{metric_name}_{rotate_model_id}) - (avg_{metric_name}_{bioblp_model_id}) \n Difference b/w both models in {metric_name} when'\
-              'predicting {entity_type_w_attr_encoded} as {eval_on_node_type} node, Vs. {entity_type_w_attr_encoded} node degree')
-    #plt.savefig(f'data/imgs/{metric_name}_node_degree_analysis-{bioblp_model_id}-{rotate_model_id}')
-    #plt.savefig(f"data/imgs/{metric_name}_node_degree_analysis-{bioblp_model_id}-{rotate_model_id}.pdf", format="pdf", bbox_inches="tight")
+    if metric_name == INVERSE_HARMONIC_MEAN_RANK:
+                                  metric_name = 'mrr'
+    plt.savefig(f"data/imgs/{metric_name}_node_degree_analysis-{bioblp_model_id}-{rotate_model_id}.pdf", format="pdf", bbox_inches="tight")
     plt.show()
 
 
