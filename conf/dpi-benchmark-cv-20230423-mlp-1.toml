@@ -54,6 +54,14 @@ model = "MLP"
 feature = "structural"
 model = "MLP"
 
+[models.transe_mlp]
+feature = "transe"
+model = "MLP"
+
+[models.complex_mlp]
+feature = "complex"
+model = "MLP"
+
 
 [train]
 n_iter = 10

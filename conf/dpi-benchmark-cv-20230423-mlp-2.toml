@@ -46,16 +46,21 @@ outdir = "splits"
 
 [models]
 
-[models.transe_mlp]
-feature = "transe"
-model = "MLP"
-
-[models.complex_mlp]
-feature = "complex"
-model = "MLP"
 
 [models.rotate_mlp]
 feature = "rotate"
+model = "MLP"
+
+[models.bioblpd_mlp]
+feature = "bioblpd"
+model = "MLP"
+
+[models.bioblpm_mlp]
+feature = "bioblpm"
+model = "MLP"
+
+[models.bioblpp_mlp]
+feature = "bioblpp"
 model = "MLP"
 
 
