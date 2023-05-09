@@ -91,7 +91,8 @@ def merge_and_plot_node_degree_analysis_multimodel_lp_eval_diff(bioblp_model_id=
                                                                 eval_on_node_endpoint=EVAL_NODE_HEAD,
                                                             test_triples=None,
                                                                 entity_type_w_attr_encoded=None,
-                                                                metric_name=INVERSE_HARMONIC_MEAN_RANK
+                                                                metric_name=INVERSE_HARMONIC_MEAN_RANK,
+                                                                plot_title=True
                                                                ):  
     merged_results_df = prep_data_for_node_degree_lp_multi_model_diff_plot(bioblp_model_id=bioblp_model_id,
                                                                            bioblp_eval_results=bioblp_eval_results,
@@ -107,7 +108,8 @@ def merge_and_plot_node_degree_analysis_multimodel_lp_eval_diff(bioblp_model_id=
                                                       bioblp_model_id=bioblp_model_id, 
                                                       rotate_model_id=rotate_model_id,
                                                       eval_on_node_endpoint=eval_on_node_endpoint,
-                                                      node_endpoint_type_for_entity_w_attribute=node_endpoint_type_for_entity_w_attribute,                                                          metric_name=metric_name)
+                                                      node_endpoint_type_for_entity_w_attribute=node_endpoint_type_for_entity_w_attribute,                                                          metric_name=metric_name,
+                                                     plot_title=plot_title)
     
     return merged_results_df
 
@@ -167,13 +169,17 @@ def plot_node_degree_analysis_multimodel_lp_eval_diff(merged_results_df,
     plot, ax = plt.subplots(figsize=(10,10))
     s_square = [n*n for n in num_unique_ents] 
 
-    plot_ = sns.scatterplot(ax = ax, x=degrees, y=metrics, size=num_unique_ents, sizes=(10,250))
-    plt.xscale('log')
-    plt.ylabel('\u0394 MRR', fontsize=15)
-    plt.xlabel(f'Training degree for entity being predicted', fontsize=14) 
+    plot_ = sns.scatterplot(ax = ax, x=degrees, y=metrics, size=num_unique_ents, sizes=(20,200))
     
+    plt.ylabel('\u0394 MRR', fontsize=17)
+    plt.ylabel('\u0394 MRR', fontsize=17)
+    ax.set_ylim([-0.4, 1])
+    
+    plt.xscale('log')
+    plt.xlabel(f'Training degree for entity being predicted', fontsize=16) 
+
     # x axis ticks
-    plt.xticks(degrees, rotation='horizontal', fontsize=12)
+    plt.xticks(degrees, rotation='horizontal', fontsize=14)
     def myLogFormat(y,pos):
         # Find the number of decimal places required
         decimalplaces = int(np.maximum(-np.log10(y),0))     # =0 for numbers >=1
@@ -185,11 +191,11 @@ def plot_node_degree_analysis_multimodel_lp_eval_diff(merged_results_df,
     # plot_.xaxis.set_major_locator(ticker.IndexLocator(100, 0))
     plot_.xaxis.set_major_locator(ticker.LogLocator())
     plot_.xaxis.set_major_formatter(ticker.FuncFormatter(myLogFormat))
-    plot_.legend(title='Unique test entities\n at each node degree', loc='upper right', prop={'size': 12}, title_fontsize=12)
+    plot_.legend(title='Unique test entities\n at each node degree', loc='upper right', prop={'size': 12}, title_fontsize=14)
     plt.grid(axis='y', color='0.5')
     
     if plot_title:
-        plt.title(f'\u0394 MRR between {rotate_model_id} and {bioblp_model_id} when predicting {entity_type_w_attr_encoded} entity head at different node degree buckets')                              
+        plt.title(f'\u0394 MRR between {rotate_model_id} and {bioblp_model_id} predicting {eval_on_node_endpoint}')                              
 
     if metric_name == INVERSE_HARMONIC_MEAN_RANK:
                                   metric_name = 'mrr'

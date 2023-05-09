@@ -93,10 +93,10 @@ DEFAULT_RELATIVE_EVAL_DIR = "./metrics/"
 
 # todo infer this programmatically, but it might require iterating through all entities
 ENT_ASSOC_REL_NAMES = {
-    DISEASE: {COL_SOURCE: [PROTEIN_DISEASE_ASSOCIATION,
-                           DRUG_DISEASE_ASSOCIATION],
-              COL_TARGET: [DISEASE_PATHWAY_ASSOCIATION,
-                           DISEASE_GENETIC_DISORDER]
+    DISEASE: {COL_SOURCE: [DISEASE_PATHWAY_ASSOCIATION,
+                           DISEASE_GENETIC_DISORDER],
+              COL_TARGET: [PROTEIN_DISEASE_ASSOCIATION,
+                           DRUG_DISEASE_ASSOCIATION]
              },
     PROTEIN: {COL_SOURCE: [MEMBER_OF_COMPLEX, 
                            PPI,
@@ -364,7 +364,7 @@ def create_entity_attr_aware_test_sets(entity_type_w_attribute: str,
     # create a subset of biokg entities of type {entity_type_w_attribute} 
     entities = pd.read_csv(entity_metadata_path, sep="\t", names=[entity_type_w_attribute, COL_EDGE, "node_type"])
     entity_set = set(entities[entity_type_w_attribute].values)
-    print(f"# {entity_type_w_attribute} entities in larger biokg (pre-benchmark removal): {len(entity_set)}")
+    print(f"# {entity_type_w_attribute} entities in larger biokg metadata files:(pre-benchmark removal): {len(entity_set)}")
 
     # create a set of {entity_type_w_attribute} entities for which we have attr descriptions (e.g.: text for Diseases)
     # TODO: Currently a quick hack. Standardise input reading
@@ -486,8 +486,8 @@ class NodeDegreeEvalAnalyser(ABC):
     def prep_test_data(self, test_triples):
         # now bucket the test triples according to node degree
         test_triples_with_degree_df = pd.DataFrame(test_triples.triples, columns=[COL_SOURCE, COL_EDGE, COL_TARGET])
-        test_triples_with_degree_df["src_training_degree"] = test_triples_with_degree_df[COL_SOURCE].apply(lambda node: self.node_train_degree_dict.get(node, 0))
-        test_triples_with_degree_df["tgt_training_degree"] = test_triples_with_degree_df[COL_TARGET].apply(lambda node: self.node_train_degree_dict.get(node, 0))
+        test_triples_with_degree_df[f"{COL_SOURCE}_training_degree"] = test_triples_with_degree_df[COL_SOURCE].apply(lambda node: self.node_train_degree_dict.get(node, 0))
+        test_triples_with_degree_df[f"{COL_TARGET}_training_degree"] = test_triples_with_degree_df[COL_TARGET].apply(lambda node: self.node_train_degree_dict.get(node, 0))
         return test_triples_with_degree_df
 
     def evaluate(self,
@@ -510,7 +510,7 @@ class NodeDegreeEvalAnalyser(ABC):
                                                                            test_triples_w_node_degree_df=test_triples_with_degree_subset_df, 
                                                                            test_set_slug=test_set_slug,
                                                                            entity_type_to_predict=entity_type_to_predict,
-                                                                           node_endpoint_type=node_endpoint_to_predict,                                                           
+                                                                           node_endpoint_type=node_endpoint_to_predict,                                             
                                                                            train_triples=train_triples,
                                                                            valid_triples=valid_triples,
                                                                            rels_assoc_by_node_endpoint_type_dict=self.rels_assoc_by_node_endpoint_type_dict,
@@ -642,11 +642,50 @@ def compute_metrics_over_triples_with_ent_node_endpoint(model_id,
                                                         model_registry_cfg: ModelRegistryConfig,
 ):
     col_node_degree = f"{node_endpoint_type}_training_degree" # if predicting head, this should be the 'src_training_degree'
-    evaluator = RankBasedEvaluator(filtered=True)
-       #if evaluator.batch_size<32:
-       #evaluator.batch_size=32 
-    print(f"eval batch size: {evaluator.batch_size}")
+    evaluator = RankBasedEvaluator(filtered=True)    
     
+    model_base_path = model_registry_cfg.registered_model_paths.get(model_id)
+    model = load_kge_model(model_base_path=model_base_path)
+    print(f'loaded model from {str(model_base_path)}')
+    additional_filter_triples = obtain_filtered_triples(test_type=test_set_slug,
+                                                        train_triples=train_triples,
+                                                        valid_triples=valid_triples
+                                                       )
+    
+    test_triples_with_ent_node_endpoint_df = test_triples_w_node_degree_df.loc[test_triples_w_node_degree_df[COL_EDGE].isin(
+        rels_assoc_by_node_endpoint_type_dict.get(entity_type_to_predict)[node_endpoint_type])]
+    ent_degree_values = test_triples_with_ent_node_endpoint_df[col_node_degree].unique()
+    result_dicts = []
+    
+    for degree_val in tqdm(ent_degree_values): 
+        df_subset = test_triples_with_ent_node_endpoint_df.loc[test_triples_with_ent_node_endpoint_df[col_node_degree]==degree_val][[COL_SOURCE, COL_EDGE, COL_TARGET]]
+        triples_subset = df_subset.values
+        triples_subset = TriplesFactory.from_labeled_triples(triples_subset, 
+                                                             relation_to_id=train_triples.relation_to_id, 
+                                                             entity_to_id=train_triples.entity_to_id)
+        if triples_subset.num_triples > 0:
+            subset_result = evaluator.evaluate(model,
+                                               triples_subset.mapped_triples, 
+                                               additional_filter_triples=additional_filter_triples,
+                                               use_tqdm=False)
+            result_dicts.append({'ent_degree': degree_val, 'results': subset_result, 'relation': 'All', 'count': triples_subset.num_triples})
+    return result_dicts
+
+
+def compute_metrics_over_triples_with_ent_node_endpoint_partner(model_id, 
+                                                        test_triples_w_node_degree_df, 
+                                                        test_set_slug,
+                                                        node_endpoint_type,                                                           
+                                                        train_triples,
+                                                        valid_triples,
+                                                        entity_type_to_predict,
+                                                        rels_assoc_by_node_endpoint_type_dict,
+                                                        model_registry_cfg: ModelRegistryConfig,
+):
+    col_node_degree = f"{node_endpoint_type}_training_degree" # if predicting head, this should be the 'src_training_degree'
+    print('HARD CODED for an experiment, correct @line 645 compute_metrics_over_triples_with_ent_node_endpoint')
+    col_node_degree = f"{COL_TARGET}_training_degree" # if predicting head, this should be the 'src_training_degree'
+    evaluator = RankBasedEvaluator(filtered=True)    
     
     model_base_path = model_registry_cfg.registered_model_paths.get(model_id)
     model = load_kge_model(model_base_path=model_base_path)

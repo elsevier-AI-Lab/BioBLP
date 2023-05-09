@@ -1,4 +1,4 @@
-model_registry_root_dir = "../models"
+model_registry_root_dir = "/home/jovyan/workbench-shared-folder/bioblp/models"#"../models"
 #test_set_lists = ['test', 'valid']
 
 [biokgb_graph]
