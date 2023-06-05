@@ -51,7 +51,9 @@ python -m bioblp.train \
 
 The above command on a NVIDIA A100 40G GPU takes about 9 hours to train.
 
-More examples will be added soon. 
+We use Weights and Biases to log the experiments, which is disabled by default. To enable it, add `--log_wandb=True` to the command above.
+
+More examples will be added soon.
 
 ### 4. Benchmark tasks
 * Pre-generate the input dataset with flags indicating if they are known or novel links. 
