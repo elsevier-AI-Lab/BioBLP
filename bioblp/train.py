@@ -3,12 +3,13 @@ import os.path as osp
 from pykeen.pipeline import pipeline
 from pykeen.training import TrainingCallback
 from pykeen.triples import TriplesFactory
+
 from tap import Tap
 from transformers import get_linear_schedule_with_warmup
 import wandb
 
-from bioblp.logging import get_logger
-from bioblp.models import BioBLP
+from bioblp.logger import get_logger
+import bioblp.models as models
 from bioblp.utils.bioblp_utils import build_encoders
 from bioblp.utils.training import InBatchNegativesTraining
 
@@ -28,6 +29,7 @@ class Arguments(Tap):
     loss_margin: float = 1.0
     optimizer: str = 'adagrad'
     learning_rate: float = 1e-2
+    freeze_pretrained_embeddings: bool = False
     warmup_fraction: float = None
     regularizer: float = 1e-6
     num_epochs: int = 100
@@ -120,15 +122,18 @@ def run(args: Arguments):
     model_kwargs = {'embedding_dim': args.dimension, 'loss': args.loss_fn}
 
     if any((args.protein_data, args.molecule_data, args.text_data)):
-        model = BioBLP
+        model = models.get_model_class(args.model)
         dimension = args.dimension
         if args.model in ('complex', 'rotate'):
             dimension *= 2
+
+        freeze_pretrained_embeddings = args.freeze_pretrained_embeddings
         encoders = build_encoders(dimension,
                                   training.entity_to_id,
                                   args.protein_data,
                                   args.molecule_data,
-                                  args.text_data)
+                                  args.text_data,
+                                  freeze_pretrained_embeddings)
         model_kwargs['entity_representations'] = encoders
 
         if args.from_checkpoint:

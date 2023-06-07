@@ -6,6 +6,7 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 from transformers import AutoTokenizer, AutoModel
+from tqdm import tqdm
 
 from ..loaders.preprocessors import (TextEntityPropertyPreprocessor,
                                      MolecularFingerprintPreprocessor,
@@ -40,7 +41,9 @@ class LookupTableEncoder(PropertyEncoder):
 
 
 class PretrainedLookupTableEncoder(PropertyEncoder):
-    def __init__(self, file_path: str, dim: int):
+    def __init__(self, file_path: str,
+                 dim: int,
+                 freeze_pretrained_embeddings: bool):
         super().__init__(file_path, dim)
 
         data_dict = torch.load(file_path)
@@ -50,8 +53,11 @@ class PretrainedLookupTableEncoder(PropertyEncoder):
 
         self.embeddings = nn.Embedding(num_entities, in_dim)
         self.embeddings.weight.data = data_dict['embeddings']
-        # TODO: dim could be higher than in_dim
         self.linear = nn.Linear(in_dim, dim)
+
+        if freeze_pretrained_embeddings:
+            for param in self.embeddings.parameters():
+                param.requires_grad = False
 
     def preprocess_properties(self,
                               entity_to_id: Mapping[str, int]
@@ -63,6 +69,11 @@ class PretrainedLookupTableEncoder(PropertyEncoder):
         embs = self.embeddings(indices.to(device))
         embs = self.linear(embs)
         return embs
+
+    def forward_from_embeddings(self, embeddings: Tensor,
+                                device: torch.device
+                                ) -> Tensor:
+        return self.linear(embeddings.to(device))
 
 
 class MolecularFingerprintEncoder(PropertyEncoder):
@@ -168,8 +179,10 @@ class PropertyEncoderRepresentation(nn.Module):
     of entity properties. Supports heterogeneous properties each with a
     potentially different encoder.
     """
+    embeddings_buffer: Tensor
+
     def __init__(self, dim: int, entity_to_id: Mapping[str, int],
-                 encoders: Iterable[nn.Module]):
+                 encoders: Iterable[PropertyEncoder]):
         num_entities = len(entity_to_id)
 
         super().__init__()
@@ -216,20 +229,31 @@ class PropertyEncoderRepresentation(nn.Module):
             lookup_table=lookup_table,
             encoder_modules=self
         )
+        # Guarantee that the initial state of the embeddings buffer is the same
+        # as the initialization values in the lookup table
+        self.embeddings_buffer = lookup_table._embeddings.weight.data.clone()
 
     @staticmethod
     def encode_entities(lookup_table: PyKEmbedding,
-                        indices: Optional[torch.LongTensor],
-                        encoder_modules: 'PropertyEncoderRepresentation'
-                        ) -> Optional[torch.Tensor]:
+                        encoder_modules: 'PropertyEncoderRepresentation',
+                        indices: Optional[torch.LongTensor] = None
+                        ) -> Optional[Tensor]:
         # This method is adapted from
         # pykeen.nn.representation.Embedding._plain_forward
+        # (as of PyKEEN v1.9.0)
 
         if indices is None:
             # Here we assume that if indices is None, we are not training,
             # so we pass the buffer of embeddings of all entities
-            prefix_shape = (lookup_table.max_id,)
+            prefix_shape = (encoder_modules.embeddings_buffer.shape[0],)
             x = encoder_modules.embeddings_buffer
+
+            # Make sure that the buffer is up-to-date with the latest state
+            # of lookup table embeddings
+            not_encoded_idx = encoder_modules.unspecified_type_id
+            not_encoded = encoder_modules.entity_types == not_encoded_idx
+            not_encoded = not_encoded.nonzero().squeeze()
+            x[not_encoded] = lookup_table._embeddings.weight.data[not_encoded]
         else:
             prefix_shape = indices.shape
             if encoder_modules.training:
@@ -257,8 +281,12 @@ class PropertyEncoderRepresentation(nn.Module):
                     else:
                         embeddings = lookup_table._embeddings(entities.to(device))
 
+                    if lookup_table.constrainer is not None:
+                        embeddings = lookup_table.constrainer(embeddings)
+
                     x[entity_type_mask] = embeddings
-                    encoder_modules.embeddings_buffer[indices] = x.detach()
+
+                encoder_modules.embeddings_buffer[indices] = x.detach()
             else:
                 x = encoder_modules.embeddings_buffer[indices]
 
@@ -268,3 +296,45 @@ class PropertyEncoderRepresentation(nn.Module):
         # verify that contiguity is preserved
         assert x.is_contiguous()
         return x
+
+    @torch.inference_mode()
+    def register_new_entities(self,
+                              new_entity_ids: list,
+                              new_entity_data: Tensor,
+                              encoder_type: int,
+                              batch_size: int,
+                              device: torch.device):
+        if encoder_type not in self.type_id_to_encoder:
+            raise ValueError(f'Unknown encoder type {encoder_type}.')
+        if encoder_type == self.unspecified_type_id:
+            raise ValueError(f'Cannot register new entities for default'
+                             f' type {encoder_type}. This type uses lookup'
+                             f' table embeddings.')
+
+        num_buffer_embeddings = self.embeddings_buffer.shape[0]
+        if len(set(range(num_buffer_embeddings)).intersection(set(new_entity_ids))) > 0:
+            raise ValueError(f'There are already embeddings for some'
+                             f' of the alleged new_entity_ids')
+
+        # Encode new entities and add them to the buffer
+        encoder = self.type_id_to_encoder[encoder_type]
+        self.embeddings_buffer = torch.cat([self.embeddings_buffer,
+                                            torch.empty([len(new_entity_ids),
+                                                         self.dim],
+                                                        dtype=torch.float,
+                                                        device=device)])
+        i = 0
+        bar = tqdm(new_entity_ids,
+                   desc=f'Encoding new entities with'
+                        f' {encoder.__class__.__name__}')
+        while i < len(new_entity_ids):
+            entities = new_entity_ids[i:i + batch_size]
+            sample = new_entity_data[i:i + batch_size]
+            if isinstance(encoder, PretrainedLookupTableEncoder):
+                x = encoder.forward_from_embeddings(sample, device=device)
+            else:
+                x = encoder(sample, device=device)
+            self.embeddings_buffer[entities] = x
+            i += batch_size
+            bar.update(len(entities))
+        bar.close()

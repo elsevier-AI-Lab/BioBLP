@@ -12,6 +12,8 @@ parameters:
     value: 512
   loss_fn:
     value: marginranking
+  freeze_pretrained_embeddings:
+    value: true
   loss_margin:
     distribution: uniform
     min: 0.5
@@ -38,7 +40,7 @@ command:
   - '--valid_triples=data/biokgb/graph/biokg.links-valid.csv'
   - '--test_triples=data/biokgb/graph/biokg.links-test.csv'
   - '--search_eval_batch_size=True'
-  - '--protein_data=data/biokgb/properties/protein_prottrans_embeddings.pt'
+  - '--protein_data=data/biokgb/properties/protein_prottrans_embeddings_24_12.pt'
   - '--log_wandb=True'
   - '--notes=BioBLP-P TransE sweep'
   - ${args}
