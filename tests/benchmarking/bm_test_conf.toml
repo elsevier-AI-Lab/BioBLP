@@ -1,5 +1,5 @@
 
-data_root = "/home/jovyan/workbench-shared-folder/bioblp/"
+data_root = "/home/skywalker/bioblp/"
 experiment_root = "data/benchmarks/experiments/dpi_fda/20230224/"
 
 [sampling]
@@ -29,6 +29,10 @@ model_dir = "data/benchmarks/experiments/encoders/rotate/"
 [features.encoder_args.transe]
 model_dir = "data/benchmarks/experiments/encoders/transe/"
 
+[split]
+n_splits = 5
+outdir = "splits"
+
 [models]
 
 [models.noise_lr]
@@ -57,8 +61,6 @@ model = "LR"
 
 [train]
 n_iter = 2
-inner_n_folds = 2
-outer_n_folds = 2
-shuffle = true
+splits_file = "cv-splits.pt"
 refit_params = ["AUCPR", "AUCROC"]
 outdir = "models"
