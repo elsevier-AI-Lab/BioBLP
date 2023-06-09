@@ -118,11 +118,8 @@ class BenchmarkTrainConfig(BenchmarkStepBaseConfig):
     splits_dir: str
     splits_file: str
     models: dict
-    # shuffle: bool
     refit_params: List[str]
-    n_iter: int = field(default=2, metadata={"help": "Stuff"})
-    # inner_n_folds: int = field(default=3)
-    # outer_n_folds: int = field(default=3)
+    n_iter: int = field(default=10, metadata={"help": "Number of HPO trials"})
 
     @classmethod
     def from_toml(cls, toml_path, run_id):

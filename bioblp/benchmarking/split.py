@@ -5,7 +5,6 @@ from argparse import ArgumentParser
 from pathlib import Path
 
 from sklearn.model_selection import StratifiedKFold
-from sklearn.model_selection import cross_validate
 from sklearn.model_selection import train_test_split
 
 

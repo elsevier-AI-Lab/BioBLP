@@ -3,11 +3,8 @@ from time import time
 from pathlib import Path
 from bioblp.benchmarking.preprocess import main as sampling_main
 from bioblp.benchmarking.config import BenchmarkPreprocessConfig
-from bioblp.benchmarking.config import BenchmarkFeatureConfig
-from bioblp.benchmarking.config import BenchmarkTrainConfig
 
 from bioblp.benchmarking.featurise import main as featurise_main
-from bioblp.benchmarking.train_runner import run as train_main
 from bioblp.benchmarking.split import main as split_main
 
 
@@ -46,15 +43,6 @@ def run_experiment(args):
                conf=args.conf,
                override_data_root=override_data_root,
                override_run_id=experiment_id)
-    #
-    # Run training
-    # #
-    # train_main(conf=args.conf,
-    #            n_proc=args.n_proc,
-    #            tag=args.tag,
-    #            override_data_root=override_data_root,
-    #            override_run_id=experiment_id,
-    #            dev_run=args.dev_run)
 
 
 def get_parser() -> ArgumentParser:

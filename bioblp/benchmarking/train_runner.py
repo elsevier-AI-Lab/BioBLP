@@ -29,8 +29,6 @@ SEED = 42
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-LOG_WANDB = True
-
 
 def train_job_multiprocess(models, splits_fn, feature_dir, scoring, refit_params, wandb_tag, n_iter,
                            outdir, study_prefix, timestamp, n_jobs: int, random_state=SEED) -> Tuple[list, list]:
@@ -57,9 +55,6 @@ def train_job_multiprocess(models, splits_fn, feature_dir, scoring, refit_params
                      model_clf=model_clf,
                      model_feature=model_feature,
                      feature_dir=feature_dir,
-                     #  fold_i=fold_i,
-                     #  train_idx=train_idx,
-                     #  test_idx=test_idx,
                      scoring=scoring,
                      n_iter=n_iter,
                      refit_params=refit_params,
@@ -242,7 +237,7 @@ def run_training_jobs(models: Dict[str, dict],
     study_trials_df.to_csv(
         trials_file, mode='a', header=not os.path.exists(trials_file), index=False)
 
-    # sae scires
+    # save scores
     torch.save([scores], outdir.joinpath(
         f"{study_prefix}-{saving_time}-scores.pt"))
 
@@ -252,7 +247,6 @@ def run_training_jobs(models: Dict[str, dict],
 def run(conf: str, n_proc: int = -1, tag: str = None, override_data_root=None, override_run_id=None, **kwargs):
     """Perform train run"""
 
-    # reproducibility
     # SEED is set as global
     start = time()
     logger.info("Starting model building script at {}.".format(start))
@@ -336,10 +330,6 @@ if __name__ == "__main__":
                         help="Optional tag to add to wand runs")
     parser.add_argument("--dev_run", action='store_true',
                         help="Quick dev run")
-    # parser.add_argument(
-    #     "--n_iter", type=int, default=2, help="Number of iterations in HPO in inner cv."
-    # )
 
     args = parser.parse_args()
-    # run(args)
     run(**vars(args))

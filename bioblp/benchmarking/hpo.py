@@ -1,24 +1,11 @@
 import torch
-import os
-import string
-import optuna
 import numpy as np
-import random as rn
 import abc
-import joblib
 import skorch
-import wandb
 
 from torch import nn
 from torch import Tensor
-from torch.optim.lr_scheduler import ReduceLROnPlateau, ExponentialLR
-
-from argparse import ArgumentParser
-from dataclasses import asdict
-from pathlib import Path
-from time import time
-from collections import defaultdict
-from optuna.integration.wandb import WeightsAndBiasesCallback
+from torch.optim.lr_scheduler import ExponentialLR
 
 
 from sklearn.ensemble import RandomForestClassifier
@@ -30,20 +17,15 @@ from sklearn.metrics import fbeta_score
 from sklearn.metrics import make_scorer
 from sklearn.metrics import accuracy_score
 from sklearn.metrics import precision_recall_curve
-from sklearn.metrics import roc_curve
 from sklearn.metrics import auc
 
-from collections import defaultdict
-
-from sklearn.model_selection import StratifiedKFold
-from sklearn.model_selection import cross_validate
 from sklearn.model_selection import train_test_split
 from skorch import NeuralNetClassifier
 from skorch.callbacks import EarlyStopping
 from skorch.callbacks import EpochScoring
 from skorch.callbacks import LRScheduler
 
-from typing import Union, Tuple, Dict
+from typing import Union, Tuple
 
 from bioblp.logger import get_logger
 
@@ -122,46 +104,6 @@ class TrainObjective(OptunaTrainObjective):
 
         if self._callback is not None:
             self._callback.set_data(self._model)
-
-        return tuple(score_to_optimize)
-
-
-class CVObjective(OptunaTrainObjective):
-    def __init__(self, X_train, y_train, cv, scoring, refit_params, run_id: Union[str, None] = None, n_jobs: int = -1):
-        self.best_model = None
-        self._model = None
-        self.X_train = X_train
-        self.y_train = y_train
-        self.cv = cv
-        self.scoring = scoring
-        self.refit_params = refit_params
-        self.run_id = run_id
-        self.n_jobs = n_jobs
-
-    def __call__(self, trial):
-        clf_obj = self._clf_objective(trial)
-
-        result = cross_validate(
-            clf_obj,
-            X=self.X_train,
-            y=self.y_train,
-            scoring=self.scoring,
-            cv=self.cv,
-            n_jobs=self.n_jobs,
-            return_estimator=False,
-            return_train_score=True,
-            verbose=14,
-        )
-
-        self._model = clf_obj
-
-        trial.set_user_attr('metrics', result)
-        trial.set_user_attr('run_id', self.run_id)
-        trial.set_user_attr('model_params', self._get_params_for(self._model))
-
-        score_to_optimize = [
-            result.get("test_{}".format(param_x)).mean() for param_x in self.refit_params
-        ]
 
         return tuple(score_to_optimize)
 
@@ -294,8 +236,8 @@ def get_train_split_undersampled(ds, y) -> Tuple[skorch.dataset.Dataset, skorch.
     X = torch.vstack([x[0] for x in ds])
     y = torch.vstack([x[1] for x in ds])
 
-    X_train, X_valid, y_train, y_valid = train_test_split(X, y, stratify=y, 
-                                                          test_size=0.1, random_state=SEED) 
+    X_train, X_valid, y_train, y_valid = train_test_split(X, y, stratify=y,
+                                                          test_size=0.1, random_state=SEED)
     raw_counts = torch.unique(y_train, return_counts=True)
 
     pos_mask = y_train.squeeze(dim=1) > 0
@@ -328,7 +270,7 @@ def get_train_split_undersampled(ds, y) -> Tuple[skorch.dataset.Dataset, skorch.
     logger.info(f"Sampled down targets from {raw_counts} to {sampled_counts}.")
 
     train_ds = skorch.dataset.Dataset(X_train_sampled, y_train_sampled)
-    
+
     valid_ds = skorch.dataset.Dataset(X_valid, y_valid)
     return train_ds, valid_ds
 
@@ -345,7 +287,6 @@ class MLPObjective(TrainObjective):
         params = {}
 
         params.update(model.get_params_for("module"))
-        # params.update(model.get_params_for("optimizer"))
 
         return params
 
@@ -375,31 +316,8 @@ class MLPObjective(TrainObjective):
             recall_scorer_callback
         ]
 
-#         optimizer = torch.optim.Adagrad()
-        # lr_scheduler = LRScheduler(policy=ReduceLROnPlateau,
-        #                            monitor='valid_loss',
-        #                            mode='min',
-        #                            threshold=0.0001,
-        #                            threshold_mode="rel",
-        #                            patience=9,
-        #                            factor=0.5,
-        #                            min_lr=1e-5,
-        #                            verbose=True)
-
-        # current best
-        # lr_scheduler = LRScheduler(policy=ReduceLROnPlateau,
-        #                            monitor='valid_loss',
-        #                            mode='min',
-        #                            threshold=0.0001,
-        #                            threshold_mode="rel",
-        #                            patience=9,
-        #                            factor=0.5,
-        #                            min_lr=1e-5,
-        #                            verbose=True)
-
         lr_scheduler = LRScheduler(policy=ExponentialLR,
                                    monitor='valid_loss',
-                                   #    mode='min',
                                    gamma=0.98,
                                    verbose=True)
 
@@ -429,26 +347,10 @@ class MLPObjective(TrainObjective):
         return net
 
     def _clf_objective(self, trial):
-
-        # lr = trial.suggest_float("optimizer__lr", 1e-5, 1e-1, log=True)
         dropout = trial.suggest_float("module__dropout", 0.1, 0.5, step=0.05)
-
-#         clf_obj = self.model_init(optimizer__lr=lr, module__dropout=dropout)
         clf_obj = self.model_init(module__dropout=dropout)
 
         return clf_obj
-
-
-class MLPCVObjective(CVObjective, MLPObjective):
-    ...
-
-
-class RFCVObjective(CVObjective, RFObjective):
-    ...
-
-
-class LRCVObjective(CVObjective, RFObjective):
-    ...
 
 
 def transform_model_inputs(X: np.array,

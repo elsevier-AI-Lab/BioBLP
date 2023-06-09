@@ -4,9 +4,8 @@ import json
 import pandas as pd
 import numpy as np
 
-from abc import ABC, abstractmethod
 from argparse import ArgumentParser
-from dataclasses import dataclass, asdict
+from dataclasses import asdict
 from functools import reduce
 
 from torch import Tensor
@@ -153,11 +152,6 @@ def get_parser() -> ArgumentParser:
     parser.add_argument("--conf", type=str,
                         help="Path to experiment configuration")
     parser.add_argument("--bm_file", type=str, help="Path to benchmark data")
-    # parser.add_argument("--proteins", type=str, help="Path to protein data")
-    # parser.add_argument("--molecules", type=str, help="Path to molecule data")
-    # parser.add_argument("--complex", type=str, help="Path to complex data")
-    # parser.add_argument("--transe", type=str, help="Path to transe data")
-    # parser.add_argument("--rotate", type=str, help="Path to rotate data")
     parser.add_argument("--override_data_root", type=str,
                         help="Path to root of data tree")
     parser.add_argument("--override_run_id", type=str,

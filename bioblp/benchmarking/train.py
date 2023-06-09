@@ -37,7 +37,7 @@ SEED = 42
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-LOG_WANDB = True
+LOG_WANDB = False
 
 
 class ConsoleResultTracker():
@@ -155,9 +155,6 @@ def model_hpo(fold_i: str,
 
     if LOG_WANDB:
         tracking_metrics = refit_params
-
-#         if "MLP" in model_label:
-#             tracking_metrics += ["train_loss", "valid_loss"]
 
         wandb_callback = WeightsAndBiasesCallback(
             metric_name=tracking_metrics, wandb_kwargs=wandb_kwargs, as_multirun=True)
