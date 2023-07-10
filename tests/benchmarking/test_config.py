@@ -9,7 +9,7 @@ from bioblp.benchmarking.config import BenchmarkFeatureConfig
 from bioblp.benchmarking.config import BenchmarkTrainConfig
 
 
-from bioblp.logging import get_logger
+from bioblp.logger import get_logger
 
 
 logger = get_logger(__name__)
@@ -17,14 +17,9 @@ logger = get_logger(__name__)
 test_toml_file = Path(__file__).parent.joinpath("bm_test_conf.toml")
 
 
-# @pytest.fixture
-# def conf_toml():
-#     return Fruit("apple")
-
-
 class TestBenchmarkStepBaseConfig():
 
-    dr = "/home/user/bioblp/data/"
+    dr = "/home/skywalker/bioblp/data/"
     exp = "benchmark/experiments"
     step_out = "step_out"
     run_id = "123"
@@ -51,7 +46,7 @@ class TestBenchmarkStepBaseConfig():
             outdir=self.step_out
         )
 
-        override_data_root = "/home/jovyan/bioblp/data/"
+        override_data_root = "/home/vader/bioblp/data/"
 
         cfg.data_root = override_data_root
 
@@ -74,8 +69,9 @@ class TestBenchmarkPreprocessConfig():
         cfg_fields = [field.name for field in fields(cfg)]
 
         assert cfg.num_negs_per_pos == 10
-        assert cfg.data_root == "/home/jovyan/workbench-shared-folder/bioblp/"
-        assert len(set(cfg_fields).difference(set(expected_fields))) == 0
+        assert cfg.data_root == "/home/skywalker/bioblp/"
+        assert len(set(cfg_fields).difference(set(expected_fields))
+                   ) == 0, f"Mismatch in fields: {set(cfg_fields).difference(set(expected_fields))}"
 
     def test_resolve_outdir(self):
 
@@ -86,7 +82,7 @@ class TestBenchmarkPreprocessConfig():
         outdir = cfg.resolve_outdir()
 
         assert str(
-            outdir) == f"/home/jovyan/workbench-shared-folder/bioblp/data/benchmarks/experiments/dpi_fda/20230224/{run_id}/sampled"
+            outdir) == f"/home/skywalker/bioblp/data/benchmarks/experiments/dpi_fda/20230224/{run_id}/sampled"
 
 
 class TestBenchmarkFeatureConfig():
@@ -100,7 +96,8 @@ class TestBenchmarkFeatureConfig():
 
         cfg_fields = [field.name for field in fields(cfg)]
 
-        assert len(set(cfg_fields).difference(set(expected_fields))) == 0
+        assert len(set(cfg_fields).difference(set(expected_fields))
+                   ) == 0, f"Mismatch in fields: {set(cfg_fields).difference(set(expected_fields))}"
 
     def test_resolve_outdir(self):
 
@@ -110,21 +107,22 @@ class TestBenchmarkFeatureConfig():
         outdir = cfg.resolve_outdir()
 
         assert str(
-            outdir) == f"/home/jovyan/workbench-shared-folder/bioblp/data/benchmarks/experiments/dpi_fda/20230224/{run_id}/features"
+            outdir) == f"/home/skywalker/bioblp/data/benchmarks/experiments/dpi_fda/20230224/{run_id}/features"
 
 
 class TestBenchmarkTrainConfig():
 
     def test_from_toml(self):
         expected_fields = ["data_root", "experiment_root", "run_id", "outdir",
-                           "feature_dir", "models", "shuffle", "refit_params", "n_iter", "inner_n_folds", "outer_n_folds"]
+                           "feature_dir", "models", "refit_params", "n_iter", "splits_dir", "splits_file"]
 
         run_id = "123"
         cfg = BenchmarkTrainConfig.from_toml(test_toml_file, run_id=run_id)
 
         cfg_fields = [field.name for field in fields(cfg)]
 
-        assert len(set(cfg_fields).difference(set(expected_fields))) == 0
+        assert len(set(cfg_fields).difference(set(expected_fields))
+                   ) == 0, f"Mismatch in fields: {set(cfg_fields).difference(set(expected_fields))}"
 
     def test_resolve_outdir(self):
 
@@ -134,7 +132,7 @@ class TestBenchmarkTrainConfig():
         outdir = cfg.resolve_outdir()
 
         assert str(
-            outdir) == f"/home/jovyan/workbench-shared-folder/bioblp/data/benchmarks/experiments/dpi_fda/20230224/{run_id}/models"
+            outdir) == f"/home/skywalker/bioblp/data/benchmarks/experiments/dpi_fda/20230224/{run_id}/models"
 
     def test_resolve_feature_outdir(self):
 
@@ -144,4 +142,4 @@ class TestBenchmarkTrainConfig():
         outdir = cfg.resolve_feature_dir()
 
         assert str(
-            outdir) == f"/home/jovyan/workbench-shared-folder/bioblp/data/benchmarks/experiments/dpi_fda/20230224/{run_id}/features"
+            outdir) == f"/home/skywalker/bioblp/data/benchmarks/experiments/dpi_fda/20230224/{run_id}/features"

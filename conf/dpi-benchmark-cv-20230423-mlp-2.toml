@@ -1,6 +1,6 @@
 
 data_root = "/home/jovyan/workbench-shared-folder/bioblp/"
-experiment_root = "data/benchmarks/experiments/dpi_fda/20230224/"
+experiment_root = "data/benchmarks/experiments/DPI/"
 
 [sampling]
 outdir = "sampled"
@@ -10,8 +10,8 @@ kg_triples_dir = "data/benchmarks/experiments/encoders/rotate/training_triples/"
 [features]
 outdir = "features"
 transform = "concat"
-missing_values = "random"
-encoders = ["structural", "complex", "rotate", "noise"]
+missing_values = "mean"
+encoders = ["noise", "structural", "complex", "rotate", "transe", "bioblpd", "bioblpm", "bioblpp" ]
 
 [features.encoder_args.noise]
 random_seed = 24
@@ -29,36 +29,43 @@ model_dir = "data/benchmarks/experiments/encoders/rotate/"
 [features.encoder_args.transe]
 model_dir = "data/benchmarks/experiments/encoders/transe/"
 
+[features.encoder_args.bioblpd]
+model_dir = "data/benchmarks/experiments/encoders/bioblpd/"
+
+[features.encoder_args.bioblpm]
+model_dir = "data/benchmarks/experiments/encoders/bioblpm/"
+
+[features.encoder_args.bioblpp]
+model_dir = "data/benchmarks/experiments/encoders/bioblpp/"
+
+
+[split]
+n_splits = 5
+outdir = "splits"
+
+
 [models]
 
-[models.noise_lr]
-feature = "noise"
-model = "LR"
 
-[models.noise_rf]
-feature = "noise"
-model = "RF"
-
-[models.noise_mlp]
-feature = "noise"
+[models.rotate_mlp]
+feature = "rotate"
 model = "MLP"
 
-[models.structural_lr]
-feature = "structural"
-model = "LR"
+[models.bioblpd_mlp]
+feature = "bioblpd"
+model = "MLP"
 
-[models.complex_lr]
-feature = "complex"
-model = "LR"
+[models.bioblpm_mlp]
+feature = "bioblpm"
+model = "MLP"
 
-[models.rotate_lr]
-feature = "rotate"
-model = "LR"
+[models.bioblpp_mlp]
+feature = "bioblpp"
+model = "MLP"
+
 
 [train]
-n_iter = 2
-inner_n_folds = 2
-outer_n_folds = 2
-shuffle = true
+n_iter = 10
+splits_file = "cv-splits.pt"
 refit_params = ["AUCPR", "AUCROC"]
 outdir = "models"
