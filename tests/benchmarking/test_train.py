@@ -1,14 +1,14 @@
 import torch
-from bioblp.benchmarking.train import validate_features_exist
+from bioblp.benchmarking.train_utils import validate_features_exist
 from bioblp.benchmarking.config import BenchmarkTrainConfig
 
-from bioblp.logging import get_logger
+from bioblp.logger import get_logger
 
 
 logger = get_logger(__name__)
 
 
-CONFIG_PATH = "conf/dpi-benchmark-train-20221216.toml"
+CONFIG_PATH = "conf/dpi-benchmark-cv-20230423-lr.toml"
 
 
 def test_parse_train_config():

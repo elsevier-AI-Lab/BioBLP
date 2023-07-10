@@ -59,8 +59,6 @@ def prepare_dpi_samples(pos_df,
     pos_neg_df[COL_LABEL] = 1
     neg_df[COL_LABEL] = 0
 
-    # append neg samples to end, so as to retain original index of positive instances.
-    # Handle indexing with more care if neg samples are generated in batches
     pos_neg_df = pd.concat([pos_neg_df, neg_df], axis=0, ignore_index=True)
     return pos_neg_df
 
@@ -93,9 +91,6 @@ def main(bm_data_path: str, kg_triples_dir: str, outdir: str, num_negs_per_pos: 
                                      entity_to_id_map=entity_to_id_map,
                                      relation_to_id_map=relation_to_id_map,
                                      num_negs_per_pos=num_negs_per_pos)
-
-    # create train-test-val splits
-    # not required, taken care of in the nested cv script
 
     # save to disk
     bm_postprocessed_path = outdir.joinpath(
