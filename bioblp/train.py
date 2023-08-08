@@ -172,7 +172,7 @@ def run(args: Arguments):
         result_tracker = "mlflow"
         
         tracking_uri = os.environ.get("MLFLOW_TRACKING_URI", None)
-        logger.info(f"MLFlow tracking server set : {tracking_uri})
+        logger.info(f"MLFlow tracking server set : {tracking_uri}")
 
         result_tracker_kwargs = {
             "tracking_uri": tracking_uri,
