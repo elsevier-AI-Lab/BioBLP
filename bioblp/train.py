@@ -1,4 +1,7 @@
+import os
 import os.path as osp
+import string
+import random
 
 from pykeen.pipeline import pipeline
 from pykeen.training import TrainingCallback
@@ -45,6 +48,7 @@ class Arguments(Tap):
     search_train_batch_size: bool = False
     search_eval_batch_size: bool = False
     log_wandb: bool = False
+    log_mlflow: bool = False
     notes: str = None
 
 
@@ -59,11 +63,15 @@ class BioBLPCallback(TrainingCallback):
         self.use_scheduler = warmup_fraction is not None
         if self.use_scheduler:
             self.num_training_steps = num_training_steps
-            self.num_warmup_steps = int(self.num_training_steps * warmup_fraction)
+            self.num_warmup_steps = int(
+                self.num_training_steps * warmup_fraction)
 
     def post_epoch(self, *args, **kwargs):
         if wandb.run is not None and BioBLPCallback.id is None:
             BioBLPCallback.id = wandb.run.id
+        elif wandb.run is None and BioBLPCallback.id is None:
+            BioBLPCallback.id = ''.join(random.choices(
+                string.ascii_lowercase + string.digits, k=8))
 
     def pre_step(self, **kwargs):
         if not self.use_scheduler:
@@ -149,6 +157,31 @@ def run(args: Arguments):
 
     training_loop = InBatchNegativesTraining if args.in_batch_negatives else None
 
+    # set trackers
+
+    # default tracker is wandb
+    result_tracker = "wandb"
+    result_tracker_kwargs = {
+        'entity': 'discoverylab',
+        'project': 'bioblp',
+        'notes': args.notes,
+        'config': cli_args_dict,
+        'offline': not args.log_wandb
+    }
+    if args.log_mlflow and not args.log_wandb:
+        result_tracker = "mlflow"
+
+        result_tracker_kwargs = {
+            "tracking_uri": os.environ.get("MLFLOW_TRACKING_URI", None),
+            "experiment_name": "biograph-test",
+            "tags": {
+                "notes": args.notes
+            }
+        }
+    elif args.log_mlflow and args.log_wandb:
+        logger.info(
+            f"Logging to WandB AND MLFlow not supported, deferring to default WandB...")
+
     result = pipeline(training=training,
                       validation=validation,
                       testing=testing,
@@ -181,14 +214,8 @@ def run(args: Arguments):
                           'larger_is_better': True
                       },
                       evaluator_kwargs={'batch_size': args.eval_batch_size},
-                      result_tracker='wandb',
-                      result_tracker_kwargs={
-                          'entity': 'discoverylab',
-                          'project': 'bioblp',
-                          'notes': args.notes,
-                          'config': cli_args_dict,
-                          'offline': not args.log_wandb
-                      }
+                      result_tracker=result_tracker,
+                      result_tracker_kwargs=result_tracker_kwargs
                       )
 
     result.save_to_directory(osp.join('models', BioBLPCallback.id))
