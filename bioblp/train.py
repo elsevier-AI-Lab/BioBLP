@@ -170,9 +170,12 @@ def run(args: Arguments):
     }
     if args.log_mlflow and not args.log_wandb:
         result_tracker = "mlflow"
+        
+        tracking_uri = os.environ.get("MLFLOW_TRACKING_URI", None)
+        logger.info(f"MLFlow tracking server set : {tracking_uri})
 
         result_tracker_kwargs = {
-            "tracking_uri": os.environ.get("MLFLOW_TRACKING_URI", None),
+            "tracking_uri": tracking_uri,
             "experiment_name": "biograph-test",
             "tags": {
                 "notes": args.notes
