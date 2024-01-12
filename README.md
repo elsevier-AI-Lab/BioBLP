@@ -12,9 +12,31 @@
 </div>
 <br><br>
 
-This is the official repository implementing BioBLP, presented in "BioBLP: A Modular Framework for Learning on Multimodal Biomedical Knowledge Graphs".
+This is the official repository implementing BioBLP, presented in "BioBLP: A Modular Framework for Learning on Multimodal Biomedical Knowledge Graphs", published in the Journal of Biomedical Semantics ([link](https://doi.org/10.1186/s13326-023-00301-y)).
 
 BioBLP is a framework that allows encoding a diverse set of multimodal data that can appear in biomedical knowledge graphs. It is based on the idea of learning embeddings for each modality separately, and then combining them into a single multimodal embedding space. The framework is modular, and allows for easy integration of new modalities.
+
+To cite our work, please use the following:
+
+```bibtex
+@article{bioblp,
+  author       = {Daniel Daza and
+                  Dimitrios Alivanistos and
+                  Payal Mitra and
+                  Thom Pijnenburg and
+                  Michael Cochez and
+                  Paul Groth},
+  title        = {BioBLP: a modular framework for learning on multimodal biomedical
+                  knowledge graphs},
+  journal      = {J. Biomed. Semant.},
+  volume       = {14},
+  number       = {1},
+  pages        = {20},
+  year         = {2023},
+  url          = {https://doi.org/10.1186/s13326-023-00301-y},
+  doi          = {10.1186/S13326-023-00301-Y},
+}
+```
 
 ## Usage
 
